@@ -1,3 +1,4 @@
+// src/pages/Dashboard.jsx
 import { useState, useEffect } from "react"
 import Card from "../components/ui/Card"
 import Button from "../components/ui/Button"
@@ -8,6 +9,7 @@ import QuickAddExpenseModal from "../components/common/QuickAddExpenseModal"
 import expenseService from "../services/expenseService"
 import settingsService from "../services/settingsService"
 import { ArrowUpRight, ArrowDownRight, Plus, TrendingUp, PieChart } from "lucide-react"
+import { auth } from "../firebase"
 
 const Dashboard = () => {
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false)
@@ -24,49 +26,58 @@ const Dashboard = () => {
   const savingsRate = ((leftoverMoney / financialData.monthlyIncome) * 100).toFixed(1)
 
   // Load expenses and settings
-  useEffect(() => {
-    const loadData = () => {
-      const stored = expenseService.getExpenses()
+  const loadData = async () => {
+    try {
+      const stored = await expenseService.getExpenses()
       const settings = settingsService.getSettings()
+      const expensesArray = Array.isArray(stored) ? stored : []
+
       setFinancialData(prev => ({
         ...prev,
         monthlyIncome: settings.monthlyIncome,
         riskTolerance: settings.riskTolerance,
-        expenses: stored,
-        totalExpenses: stored.reduce((sum, e) => sum + e.amount, 0),
+        expenses: expensesArray,
+        totalExpenses: expensesArray.reduce((sum, e) => sum + (e.amount || 0), 0),
       }))
-      setRecentExpenses(stored.slice(0, 5))
-    }
 
+      setRecentExpenses(expensesArray.slice(0, 5))
+    } catch (err) {
+      console.error("Failed to load expenses:", err)
+    }
+  }
+
+  useEffect(() => {
     loadData()
 
-    // Listen for expense changes
+    const unsubscribe = auth.onAuthStateChanged(() => {
+      loadData()
+    })
+
+    // Listen for global expense changes
     const handleExpenseAdded = (e) => {
       const { expense } = e.detail || {}
-      if (expense) {
-        setFinancialData(prev => ({
-          ...prev,
-          expenses: [expense, ...prev.expenses],
-          totalExpenses: prev.totalExpenses + expense.amount,
-        }))
-        setRecentExpenses(prev => [expense, ...prev].slice(0, 5))
-      }
+      if (!expense) return
+      setFinancialData(prev => ({
+        ...prev,
+        expenses: [expense, ...prev.expenses],
+        totalExpenses: prev.totalExpenses + (expense.amount || 0),
+      }))
+      setRecentExpenses(prev => [expense, ...prev].slice(0, 5))
     }
 
     const handleExpenseDeleted = (e) => {
       const { id } = e.detail || {}
-      if (id) {
-        setFinancialData(prev => {
-          const deleted = prev.expenses.find(ex => ex.id === id)
-          const newExpenses = prev.expenses.filter(ex => ex.id !== id)
-          return {
-            ...prev,
-            expenses: newExpenses,
-            totalExpenses: prev.totalExpenses - (deleted?.amount || 0),
-          }
-        })
-        setRecentExpenses(prev => prev.filter(ex => ex.id !== id))
-      }
+      if (!id) return
+      setFinancialData(prev => {
+        const deleted = prev.expenses.find(ex => ex.id === id)
+        const newExpenses = prev.expenses.filter(ex => ex.id !== id)
+        return {
+          ...prev,
+          expenses: newExpenses,
+          totalExpenses: prev.totalExpenses - (deleted?.amount || 0),
+        }
+      })
+      setRecentExpenses(prev => prev.filter(ex => ex.id !== id))
     }
 
     const handleSettingsUpdated = (e) => {
@@ -85,6 +96,7 @@ const Dashboard = () => {
     window.addEventListener('settingsUpdated', handleSettingsUpdated)
 
     return () => {
+      unsubscribe()
       window.removeEventListener('expenseAdded', handleExpenseAdded)
       window.removeEventListener('expenseDeleted', handleExpenseDeleted)
       window.removeEventListener('settingsUpdated', handleSettingsUpdated)
@@ -103,6 +115,7 @@ const Dashboard = () => {
 
       {/* Summary Cards */}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Total Income */}
         <Card padding="lg">
           <div className="flex items-center justify-between">
             <div>
@@ -117,6 +130,7 @@ const Dashboard = () => {
           </div>
         </Card>
 
+        {/* Total Expenses */}
         <Card padding="lg">
           <div className="flex items-center justify-between">
             <div>
@@ -131,6 +145,7 @@ const Dashboard = () => {
           </div>
         </Card>
 
+        {/* Leftover Money */}
         <Card padding="lg">
           <div className="flex items-center justify-between">
             <div>
@@ -145,6 +160,7 @@ const Dashboard = () => {
           </div>
         </Card>
 
+        {/* Savings Rate */}
         <Card padding="lg">
           <div className="flex items-center justify-between">
             <div>
@@ -166,22 +182,16 @@ const Dashboard = () => {
           <Plus size={16} />
           Add Expense
         </Button>
-
-        <Button variant="secondary">
-          View Analytics
-        </Button>
-
-        <Button variant="secondary">
-          Set Goals
-        </Button>
+        <Button variant="secondary">View Analytics</Button>
+        <Button variant="secondary">Set Goals</Button>
       </section>
 
-      {/* AI Suggestions Section - Main Feature */}
+      {/* AI Suggestions */}
       <AISuggestions financialData={financialData} />
 
-      {/* AI Investment Advisor - Smart AI Section */}
-      <SmartAIAdvisor 
-        leftoverMoney={leftoverMoney} 
+      {/* Smart AI Advisor */}
+      <SmartAIAdvisor
+        leftoverMoney={leftoverMoney}
         riskTolerance={financialData.riskTolerance}
         expenses={financialData.expenses}
       />
@@ -189,9 +199,7 @@ const Dashboard = () => {
       {/* Recent Expenses */}
       <section>
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Recent Expenses
-          </h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Expenses</h2>
           <button className="text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300">
             View all
           </button>
@@ -203,15 +211,13 @@ const Dashboard = () => {
               <Card key={expense.id} padding="sm" className="hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
-                    <p className="font-medium text-gray-900 dark:text-white">
-                      {expense.category}
-                    </p>
+                    <p className="font-medium text-gray-900 dark:text-white">{expense.category}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       {expense.note} • {new Date(expense.date).toLocaleDateString()}
                     </p>
                   </div>
                   <p className="font-semibold text-red-500 dark:text-red-400">
-                    - ₹{expense.amount.toLocaleString()}
+                    - ₹{expense.amount?.toLocaleString() ?? 0}
                   </p>
                 </div>
               </Card>
@@ -231,7 +237,15 @@ const Dashboard = () => {
       <QuickAddExpenseModal
         isOpen={isAddExpenseOpen}
         onClose={() => setIsAddExpenseOpen(false)}
-        onExpenseAdded={() => {}}
+        onExpenseAdded={(expense) => {
+          if (!expense) return
+          setFinancialData(prev => ({
+            ...prev,
+            expenses: [expense, ...prev.expenses],
+            totalExpenses: prev.totalExpenses + (expense.amount || 0),
+          }))
+          setRecentExpenses(prev => [expense, ...prev].slice(0, 5))
+        }}
       />
     </div>
   )

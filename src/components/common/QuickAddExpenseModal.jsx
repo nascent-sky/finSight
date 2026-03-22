@@ -34,17 +34,23 @@ const QuickAddExpenseModal = ({ isOpen, onClose, onExpenseAdded }) => {
     setIsSubmitting(true)
     
     try {
+      // Ensure addExpense returns the new object
       const newExpense = expenseService.addExpense({
+        id: Date.now(), // unique id
         amount: parsedAmount,
         category,
         note: note || 'Manual entry',
         date: new Date().toISOString().split('T')[0],
       })
 
+      if (!newExpense) {
+        throw new Error('Expense creation failed')
+      }
+
       showToast(`✓ Expense saved: ₹${parsedAmount}`, 'success', 2500)
       
       if (onExpenseAdded) {
-        onExpenseAdded(newExpense)
+        onExpenseAdded(newExpense) // safely pass object
       }
 
       // Reset form
@@ -52,7 +58,8 @@ const QuickAddExpenseModal = ({ isOpen, onClose, onExpenseAdded }) => {
       setCategory('Food & Dining')
       setNote('')
       onClose()
-    } catch {
+    } catch (err) {
+      console.error(err)
       showToast('Failed to save expense', 'error')
     } finally {
       setIsSubmitting(false)

@@ -1,3 +1,4 @@
+// src/pages/Categories.jsx
 import { useState, useEffect } from "react"
 import { Plus, Trash2 } from "lucide-react"
 
@@ -24,37 +25,34 @@ const Categories = () => {
   const [newCategory, setNewCategory] = useState({ name: "", emoji: "📦" })
   const [expenses, setExpenses] = useState([])
 
-  // Calculate actual spending per category
+  // Safely calculate spending per category
   const getCategorySpending = (categoryName) => {
+    if (!Array.isArray(expenses)) return 0
     return expenses
       .filter((exp) => exp.category === categoryName)
-      .reduce((sum, exp) => sum + exp.amount, 0)
+      .reduce((sum, exp) => sum + Number(exp.amount || 0), 0)
   }
 
   const handleAddCategory = () => {
-    if (newCategory.name) {
-      setCategories([
-        ...categories,
-        {
-          id: Math.max(...categories.map((c) => c.id), 0) + 1,
-          name: newCategory.name,
-          emoji: newCategory.emoji || "📦",
-        },
-      ])
-      setNewCategory({ name: "", emoji: "📦" })
-      setIsModalOpen(false)
-    }
+    if (!newCategory.name) return
+    const nextId = categories.length > 0 ? Math.max(...categories.map(c => c.id)) + 1 : 1
+    setCategories([
+      ...categories,
+      { id: nextId, name: newCategory.name, emoji: newCategory.emoji || "📦" },
+    ])
+    setNewCategory({ name: "", emoji: "📦" })
+    setIsModalOpen(false)
   }
 
   const handleDeleteCategory = (id) => {
     setCategories(categories.filter((c) => c.id !== id))
   }
 
-  // Load expenses and listen for changes
+  // Load expenses on mount and listen for updates
   useEffect(() => {
     const loadExpenses = () => {
       const stored = expenseService.getExpenses()
-      setExpenses(stored)
+      setExpenses(Array.isArray(stored) ? stored : [])
     }
 
     loadExpenses()
@@ -62,43 +60,38 @@ const Categories = () => {
     const handleExpenseAdded = (e) => {
       const { expense } = e.detail || {}
       if (expense) {
-        setExpenses(prev => [expense, ...prev])
+        setExpenses(prev => Array.isArray(prev) ? [expense, ...prev] : [expense])
       }
     }
 
     const handleExpenseDeleted = (e) => {
       const { id } = e.detail || {}
-      if (id) {
-        setExpenses(prev => prev.filter(ex => ex.id !== id))
+      if (id != null) {
+        setExpenses(prev => Array.isArray(prev) ? prev.filter(ex => ex.id !== id) : [])
       }
     }
 
-    window.addEventListener('expenseAdded', handleExpenseAdded)
-    window.addEventListener('expenseDeleted', handleExpenseDeleted)
+    window.addEventListener("expenseAdded", handleExpenseAdded)
+    window.addEventListener("expenseDeleted", handleExpenseDeleted)
 
     return () => {
-      window.removeEventListener('expenseAdded', handleExpenseAdded)
-      window.removeEventListener('expenseDeleted', handleExpenseDeleted)
+      window.removeEventListener("expenseAdded", handleExpenseAdded)
+      window.removeEventListener("expenseDeleted", handleExpenseDeleted)
     }
   }, [])
 
   return (
     <div className="space-y-6">
-      
       {/* Page Header */}
       <div className="rounded-2xl bg-linear-to-r from-pink-600 to-rose-600 p-6 text-white shadow-lg">
         <h1 className="text-3xl font-bold">Expense Categories</h1>
-        <p className="mt-2 opacity-90 text-sm">
-          Track your spending across categories
-        </p>
+        <p className="mt-2 opacity-90 text-sm">Track your spending across categories</p>
       </div>
 
       {/* Categories Grid */}
       <section className="space-y-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Your Categories
-          </h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Your Categories</h2>
           <Button
             size="sm"
             className="flex items-center gap-2 w-full sm:w-auto"
@@ -109,9 +102,9 @@ const Categories = () => {
           </Button>
         </div>
 
-        {/* Category Grid - Responsive */}
+        {/* Category Grid */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {categories.map((category) => {
+          {Array.isArray(categories) && categories.map((category) => {
             const spending = getCategorySpending(category.name)
 
             return (
@@ -152,11 +145,7 @@ const Categories = () => {
       </section>
 
       {/* Add Category Modal */}
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title="Add New Category"
-      >
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Add New Category">
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -165,9 +154,7 @@ const Categories = () => {
             <Input
               placeholder="e.g., Education"
               value={newCategory.name}
-              onChange={(e) =>
-                setNewCategory({ ...newCategory, name: e.target.value })
-              }
+              onChange={(e) => setNewCategory({ ...newCategory, name: e.target.value })}
             />
           </div>
           <div>
@@ -178,17 +165,11 @@ const Categories = () => {
               placeholder="e.g., 📚"
               value={newCategory.emoji}
               maxLength={2}
-              onChange={(e) =>
-                setNewCategory({ ...newCategory, emoji: e.target.value })
-              }
+              onChange={(e) => setNewCategory({ ...newCategory, emoji: e.target.value })}
             />
           </div>
           <div className="flex gap-3">
-            <Button
-              variant="secondary"
-              onClick={() => setIsModalOpen(false)}
-              className="flex-1"
-            >
+            <Button variant="secondary" onClick={() => setIsModalOpen(false)} className="flex-1">
               Cancel
             </Button>
             <Button onClick={handleAddCategory} className="flex-1">

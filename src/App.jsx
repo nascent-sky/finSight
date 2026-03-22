@@ -1,3 +1,6 @@
+import { auth } from "./firebase"
+import { onAuthStateChanged } from "firebase/auth"
+
 import { BrowserRouter, Routes, Route } from "react-router-dom"
 import { useState, useEffect } from "react"
 
@@ -18,10 +21,14 @@ import AddExpense from "./pages/AddExpense"
 import Settings from "./pages/Settings"
 
 // Layout wrapper for authenticated pages
-const AuthLayout = ({ children, isSidebarOpen, setIsSidebarOpen, onAddClick, isQuickAddOpen, setIsQuickAddOpen, onExpenseAdded }) => (
+const AuthLayout = ({ children, user, isSidebarOpen, setIsSidebarOpen, onAddClick, isQuickAddOpen, setIsQuickAddOpen, onExpenseAdded }) => (
   <div className="flex min-h-screen bg-gray-50 dark:bg-gray-950">
-    <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-    <div className="flex flex-1 flex-col">
+    <Sidebar 
+      isOpen={isSidebarOpen} 
+      onClose={() => setIsSidebarOpen(false)} 
+      user={user}
+    />
+    <div className="flex flex-1 flex-col md:ml-64">
       <Header
         title="FinSight"
         onMenuClick={() => setIsSidebarOpen(true)}
@@ -44,6 +51,16 @@ const AuthLayout = ({ children, isSidebarOpen, setIsSidebarOpen, onAddClick, isQ
 function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false)
+  const [user, setUser] = useState(null)
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser)
+      console.log("Logged in user:", currentUser)
+    })
+
+    return () => unsubscribe()
+  }, [])
 
   const handleQuickAddExpense = () => {
     setIsQuickAddOpen(true)
@@ -63,6 +80,7 @@ function App() {
         {/* App Routes (WITH layout) */}
         <Route path="/" element={
           <AuthLayout
+            user={user}
             isSidebarOpen={isSidebarOpen}
             setIsSidebarOpen={setIsSidebarOpen}
             onAddClick={handleQuickAddExpense}
@@ -75,6 +93,7 @@ function App() {
         } />
         <Route path="/expenses" element={
           <AuthLayout
+            user={user}
             isSidebarOpen={isSidebarOpen}
             setIsSidebarOpen={setIsSidebarOpen}
             onAddClick={handleQuickAddExpense}
@@ -87,6 +106,7 @@ function App() {
         } />
         <Route path="/analytics" element={
           <AuthLayout
+            user={user}
             isSidebarOpen={isSidebarOpen}
             setIsSidebarOpen={setIsSidebarOpen}
             onAddClick={handleQuickAddExpense}
@@ -99,6 +119,7 @@ function App() {
         } />
         <Route path="/categories" element={
           <AuthLayout
+            user={user}
             isSidebarOpen={isSidebarOpen}
             setIsSidebarOpen={setIsSidebarOpen}
             onAddClick={handleQuickAddExpense}
@@ -111,6 +132,7 @@ function App() {
         } />
         <Route path="/add-expense" element={
           <AuthLayout
+            user={user}
             isSidebarOpen={isSidebarOpen}
             setIsSidebarOpen={setIsSidebarOpen}
             onAddClick={handleQuickAddExpense}
@@ -123,6 +145,7 @@ function App() {
         } />
         <Route path="/settings" element={
           <AuthLayout
+            user={user}
             isSidebarOpen={isSidebarOpen}
             setIsSidebarOpen={setIsSidebarOpen}
             onAddClick={handleQuickAddExpense}

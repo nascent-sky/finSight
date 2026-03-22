@@ -1,16 +1,16 @@
+// src/pages/Analytics.jsx
 import { useState, useEffect } from "react"
 import Card from "../components/ui/Card"
-import Button from "../components/ui/Button"
 import InvestmentSimulator from "../components/common/InvestmentSimulator"
 import FinancialGoalPlanner from "../components/common/FinancialGoalPlanner"
 import WealthProjectionCalculator from "../components/common/WealthProjectionCalculator"
 import expenseService from "../services/expenseService"
 import settingsService from "../services/settingsService"
-import { BarChart3, TrendingUp, PieChart as PieChartIcon } from "lucide-react"
+import { BarChart3, PieChart as PieChartIcon } from "lucide-react"
 
 const Analytics = () => {
   const [expenses, setExpenses] = useState([])
-  const [monthlyIncome, setMonthlyIncome] = useState(settingsService.getMonthlyIncome())
+  const [monthlyIncome, setMonthlyIncome] = useState(Number(settingsService.getMonthlyIncome()) || 0)
   const [monthlyStats, setMonthlyStats] = useState({
     totalExpenses: 0,
     weeklyBreakdown: {},
@@ -24,12 +24,12 @@ const Analytics = () => {
     const currentYear = today.getFullYear()
 
     // Filter current month expenses
-    const monthExpenses = expenseList.filter(exp => {
+    const monthExpenses = (expenseList || []).filter(exp => {
       const expDate = new Date(exp.date)
       return expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear
     })
 
-    // Calculate weekly breakdown
+    // Weekly breakdown
     const weeklyBreakdown = {
       'Week 1 (1-7)': 0,
       'Week 2 (8-14)': 0,
@@ -42,38 +42,44 @@ const Analytics = () => {
 
     monthExpenses.forEach(exp => {
       const day = parseInt(exp.date.split('-')[2])
-      if (day <= 7) weeklyBreakdown['Week 1 (1-7)'] += exp.amount
-      else if (day <= 14) weeklyBreakdown['Week 2 (8-14)'] += exp.amount
-      else if (day <= 21) weeklyBreakdown['Week 3 (15-21)'] += exp.amount
-      else weeklyBreakdown['Week 4+ (22+)'] += exp.amount
+      const amount = Number(exp.amount) || 0
 
-      categoryBreakdown[exp.category] = (categoryBreakdown[exp.category] || 0) + exp.amount
-      total += exp.amount
+      if (day <= 7) weeklyBreakdown['Week 1 (1-7)'] += amount
+      else if (day <= 14) weeklyBreakdown['Week 2 (8-14)'] += amount
+      else if (day <= 21) weeklyBreakdown['Week 3 (15-21)'] += amount
+      else weeklyBreakdown['Week 4+ (22+)'] += amount
+
+      categoryBreakdown[exp.category || "Other"] = (categoryBreakdown[exp.category] || 0) + amount
+      total += amount
     })
 
-    return {
-      totalExpenses: total,
-      weeklyBreakdown,
-      categoryBreakdown,
+    return { totalExpenses: total, weeklyBreakdown, categoryBreakdown }
+  }
+
+  // Load expenses and recalc stats
+  const loadExpenses = async () => {
+    try {
+      const stored = await expenseService.getExpenses()
+      const expensesArray = Array.isArray(stored) ? stored : []
+      setExpenses(expensesArray)
+      setMonthlyStats(calculateStats(expensesArray))
+    } catch (e) {
+      console.error("Failed to load expenses", e)
     }
   }
 
-  // Load expenses on mount and listen for changes
   useEffect(() => {
-    const loadExpenses = () => {
-      const stored = expenseService.getExpenses()
-      setExpenses(stored)
-      setMonthlyStats(calculateStats(stored))
-    }
-
     loadExpenses()
 
-    // Listen for expense changes
+    // Handlers
     const handleExpenseAdded = (e) => {
       const { expense } = e.detail || {}
       if (expense) {
-        setExpenses(prev => [expense, ...prev])
-        setMonthlyStats(calculateStats([expense, ...expenses]))
+        setExpenses(prev => {
+          const updated = [expense, ...prev]
+          setMonthlyStats(calculateStats(updated))
+          return updated
+        })
       }
     }
 
@@ -81,7 +87,7 @@ const Analytics = () => {
       const { id } = e.detail || {}
       if (id) {
         setExpenses(prev => {
-          const updated = prev.filter(ex => ex.id !== id)
+          const updated = prev.filter(exp => exp.id !== id)
           setMonthlyStats(calculateStats(updated))
           return updated
         })
@@ -90,8 +96,8 @@ const Analytics = () => {
 
     const handleSettingsUpdated = (e) => {
       const { settings } = e.detail || {}
-      if (settings) {
-        setMonthlyIncome(settings.monthlyIncome)
+      if (settings && settings.monthlyIncome != null) {
+        setMonthlyIncome(Number(settings.monthlyIncome))
       }
     }
 
@@ -110,7 +116,7 @@ const Analytics = () => {
 
   return (
     <div className="space-y-8">
-      
+
       {/* Page Header */}
       <div className="rounded-2xl bg-linear-to-r from-blue-600 to-indigo-600 p-6 text-white shadow-lg">
         <div className="flex items-center gap-3">
@@ -133,7 +139,7 @@ const Analytics = () => {
               ₹{monthlyStats.totalExpenses.toLocaleString()}
             </h3>
             <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-              {((monthlyStats.totalExpenses / monthlyIncome) * 100).toFixed(1)}% of income
+              {monthlyIncome ? ((monthlyStats.totalExpenses / monthlyIncome) * 100).toFixed(1) : 0}% of income
             </p>
           </div>
         </Card>
@@ -145,7 +151,7 @@ const Analytics = () => {
               ₹{leftoverMoney.toLocaleString()}
             </h3>
             <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-              {((leftoverMoney / monthlyIncome) * 100).toFixed(1)}% of income
+              {monthlyIncome ? ((leftoverMoney / monthlyIncome) * 100).toFixed(1) : 0}% of income
             </p>
           </div>
         </Card>
@@ -161,23 +167,22 @@ const Analytics = () => {
         </Card>
       </section>
 
-      {/* Spending Breakdown with Pie-Style Chart */}
+      {/* Category Breakdown */}
       <section className="grid gap-4 lg:grid-cols-3">
-        {/* Pie Chart Style - Category Distribution */}
         <Card padding="lg" className="lg:col-span-1 bg-linear-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20">
           <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
             <PieChartIcon size={20} />
             Category Distribution
           </h3>
           <div className="space-y-3">
-            {Object.entries(monthlyStats.categoryBreakdown)
+            {Object.entries(monthlyStats.categoryBreakdown || {})
               .sort(([, a], [, b]) => b - a)
               .slice(0, 5)
               .map(([category, amount], idx) => {
                 const percentage = ((amount / (monthlyStats.totalExpenses || 1)) * 100)
                 const colors = ['bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-green-500', 'bg-blue-500']
                 return (
-                  <div key={category}>
+                  <div key={category || idx}>
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{category}</span>
                       <span className="text-sm font-bold text-gray-900 dark:text-white">{percentage.toFixed(1)}%</span>
@@ -194,17 +199,17 @@ const Analytics = () => {
           </div>
         </Card>
 
-        {/* Weekly Breakdown - Bar Style */}
+        {/* Weekly Breakdown */}
         <Card padding="lg" className="lg:col-span-2 bg-linear-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20">
           <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
             <BarChart3 size={20} />
             Weekly Spending Trends
           </h3>
           <div className="space-y-3">
-            {Object.entries(monthlyStats.weeklyBreakdown).map(([week, amount]) => {
+            {Object.entries(monthlyStats.weeklyBreakdown || {}).map(([week, amount], idx) => {
               const percentage = Math.min((amount / Math.max(monthlyStats.totalExpenses, 5000)) * 100, 100)
               return (
-                <div key={week}>
+                <div key={week || idx}>
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{week}</span>
                     <span className="text-sm font-bold text-gray-900 dark:text-white">₹{amount.toLocaleString()}</span>
@@ -246,24 +251,16 @@ const Analytics = () => {
           <div className="text-center">
             <p className="text-xs text-gray-600 dark:text-gray-400 uppercase font-semibold">Categories</p>
             <p className="mt-1 text-lg font-bold text-blue-600 dark:text-blue-400">
-              {Object.keys(monthlyStats.categoryBreakdown).length}
+              {Object.keys(monthlyStats.categoryBreakdown || {}).length}
             </p>
           </div>
         </div>
       </Card>
 
-      {/* Investment Simulator */}
-      <section>
-        <InvestmentSimulator leftoverMoney={leftoverMoney} />
-      </section>
-      <section>
-        <FinancialGoalPlanner />
-      </section>
-
-      {/* Wealth Projection Calculator */}
-      <section>
-        <WealthProjectionCalculator monthlyIncome={45000} currentSavings={100000} />
-      </section>
+      {/* Investment & Financial Tools */}
+      <InvestmentSimulator leftoverMoney={leftoverMoney} />
+      <FinancialGoalPlanner />
+      <WealthProjectionCalculator monthlyIncome={monthlyIncome} currentSavings={100000} />
 
       {/* Smart Insights */}
       <section className="grid gap-4 sm:grid-cols-2">
@@ -271,9 +268,7 @@ const Analytics = () => {
           <div className="flex items-start gap-3">
             <span className="text-3xl">🎯</span>
             <div>
-              <h3 className="font-semibold text-gray-900 dark:text-white">
-                Wealth Building Strategy
-              </h3>
+              <h3 className="font-semibold text-gray-900 dark:text-white">Wealth Building Strategy</h3>
               <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
                 With ₹{leftoverMoney.toLocaleString()} monthly savings:
               </p>
@@ -290,12 +285,8 @@ const Analytics = () => {
           <div className="flex items-start gap-3">
             <span className="text-3xl">🏆</span>
             <div>
-              <h3 className="font-semibold text-gray-900 dark:text-white">
-                Recommended Action Plan
-              </h3>
-              <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
-                For optimal growth:
-              </p>
+              <h3 className="font-semibold text-gray-900 dark:text-white">Recommended Action Plan</h3>
+              <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">For optimal growth:</p>
               <ul className="mt-2 space-y-1 text-sm text-gray-700 dark:text-gray-300">
                 <li>✓ 20% to Emergency Fund</li>
                 <li>✓ 30% to Savings Account</li>

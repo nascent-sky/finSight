@@ -4,6 +4,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  onSnapshot,
   query,
   setDoc,
   where,
@@ -13,8 +14,8 @@ import { auth, db } from "../firebase"
 
 export const GUEST_EXPENSES_STORAGE_KEY = "finsight_expenses_v1"
 export const GUEST_MODE_STORAGE_KEY = "finsight_guest_mode_v1"
-export const OFFLINE_QUEUE_STORAGE_KEY = "finsight_expense_queue_v1"
 export const EXPENSES_CHANGED_EVENT = "expensesChanged"
+export const EXPENSES_SYNC_ERROR_EVENT = "expensesSyncError"
 
 const EXPENSES_COLLECTION = "expenses"
 const DATA_SERVICE_INIT_KEY = "__finsightDataServiceInitialized"
@@ -184,8 +185,6 @@ const writeGuestExpenses = (expenses) => {
   )
 }
 
-const isGuestModeEnabled = () => readJson(GUEST_MODE_STORAGE_KEY, false) === true
-
 const emitExpenseChange = (type, detail = {}) => {
   if (typeof window === "undefined") return
 
@@ -205,116 +204,106 @@ const emitExpenseChange = (type, detail = {}) => {
   }
 }
 
-const isOnline = () => {
-  if (typeof navigator === "undefined") return true
-  return navigator.onLine
-}
+const emitExpenseSyncError = (error, detail = {}) => {
+  if (typeof window === "undefined") return
 
-const isRetryableError = (error) => {
-  const code = String(error?.code || "").replace("firestore/", "")
-  return ["aborted", "deadline-exceeded", "failed-precondition", "unavailable"].includes(code)
-}
-
-const readOfflineQueue = () => {
-  const parsed = readJson(OFFLINE_QUEUE_STORAGE_KEY, [])
-  return Array.isArray(parsed) ? parsed : []
-}
-
-const writeOfflineQueue = (queue) => {
-  writeJson(OFFLINE_QUEUE_STORAGE_KEY, queue)
-}
-
-const enqueueOfflineOperation = (operation) => {
-  const queue = readOfflineQueue()
-  queue.push({
-    ...operation,
-    queuedAt: Date.now(),
-  })
-  writeOfflineQueue(queue)
-}
-
-const persistExpenseToCloud = async (expense, user = auth.currentUser) => {
-  if (!user) {
-    throw new Error("A logged-in user is required to store expenses in Firestore.")
-  }
-
-  const nextExpense = normalizeExpense(expense, { userId: user.uid, id: expense.id })
-  const queuedOperation = {
-    type: "upsert",
-    userId: user.uid,
-    expense: nextExpense,
-  }
-
-  let wasQueued = false
-  if (!isOnline()) {
-    enqueueOfflineOperation(queuedOperation)
-    wasQueued = true
-  }
-
-  try {
-    await setDoc(doc(db, EXPENSES_COLLECTION, nextExpense.id), nextExpense, { merge: true })
-    return nextExpense
-  } catch (error) {
-    if (isRetryableError(error) && !wasQueued) {
-      enqueueOfflineOperation(queuedOperation)
-      return nextExpense
-    }
-
-    throw error
-  }
-}
-
-const removeExpenseFromCloud = async (id, user = auth.currentUser) => {
-  if (!user) {
-    throw new Error("A logged-in user is required to delete Firestore expenses.")
-  }
-
-  const expenseId = String(id)
-  const queuedOperation = {
-    type: "delete",
-    userId: user.uid,
-    id: expenseId,
-  }
-
-  let wasQueued = false
-  if (!isOnline()) {
-    enqueueOfflineOperation(queuedOperation)
-    wasQueued = true
-  }
-
-  try {
-    await deleteDoc(doc(db, EXPENSES_COLLECTION, expenseId))
-    return true
-  } catch (error) {
-    if (isRetryableError(error) && !wasQueued) {
-      enqueueOfflineOperation(queuedOperation)
-      return true
-    }
-
-    throw error
-  }
-}
-
-const getCloudExpenses = async (user = auth.currentUser) => {
-  if (!user) return []
-
-  const expensesQuery = query(
-    collection(db, EXPENSES_COLLECTION),
-    where("userId", "==", user.uid),
+  window.dispatchEvent(
+    new CustomEvent(EXPENSES_SYNC_ERROR_EVENT, {
+      detail: {
+        ...detail,
+        code: String(error?.code || "").replace("firestore/", "") || null,
+        message: error?.message || "Expense sync failed.",
+      },
+    }),
   )
-  const snapshot = await getDocs(expensesQuery)
+}
 
-  return sortExpenses(
+const isGuestModeEnabled = () => readJson(GUEST_MODE_STORAGE_KEY, false) === true
+
+const buildExpensesQuery = (user = auth.currentUser) => {
+  if (!user?.uid) return null
+
+  return query(collection(db, EXPENSES_COLLECTION), where("userId", "==", user.uid))
+}
+
+const mapSnapshotExpenses = (snapshot, userId) =>
+  sortExpenses(
     snapshot.docs.map((document) =>
       normalizeExpense(
         {
           id: document.id,
           ...document.data(),
         },
-        { userId: user.uid },
+        { userId },
       ),
     ),
   )
+
+const writeExpenseToCloud = async (expense, user = auth.currentUser) => {
+  if (!user) {
+    throw new Error("A logged-in user is required to store expenses in Firestore.")
+  }
+
+  const nextExpense = normalizeExpense(expense, { userId: user.uid, id: expense.id })
+  await setDoc(doc(db, EXPENSES_COLLECTION, nextExpense.id), nextExpense, { merge: true })
+  return nextExpense
+}
+
+const queueExpenseWriteToCloud = (expense, user = auth.currentUser) => {
+  if (!user) {
+    throw new Error("A logged-in user is required to store expenses in Firestore.")
+  }
+
+  const nextExpense = normalizeExpense(expense, { userId: user.uid, id: expense.id })
+
+  void writeExpenseToCloud(nextExpense, user).catch((error) => {
+    console.error("Failed to sync expense to Firestore", error)
+    emitExpenseSyncError(error, {
+      operation: "upsert",
+      expenseId: nextExpense.id,
+      userId: user.uid,
+    })
+  })
+
+  return nextExpense
+}
+
+const deleteExpenseFromCloud = async (id, user = auth.currentUser) => {
+  if (!user) {
+    throw new Error("A logged-in user is required to delete Firestore expenses.")
+  }
+
+  const expenseId = String(id)
+  await deleteDoc(doc(db, EXPENSES_COLLECTION, expenseId))
+  return true
+}
+
+const queueExpenseDeleteFromCloud = (id, user = auth.currentUser) => {
+  if (!user) {
+    throw new Error("A logged-in user is required to delete Firestore expenses.")
+  }
+
+  const expenseId = String(id)
+
+  void deleteExpenseFromCloud(expenseId, user).catch((error) => {
+    console.error("Failed to sync expense deletion to Firestore", error)
+    emitExpenseSyncError(error, {
+      operation: "delete",
+      expenseId,
+      userId: user.uid,
+    })
+  })
+
+  return true
+}
+
+const getCloudExpenses = async (user = auth.currentUser) => {
+  if (!user) return []
+
+  const expensesQuery = buildExpensesQuery(user)
+  const snapshot = await getDocs(expensesQuery)
+
+  return mapSnapshotExpenses(snapshot, user.uid)
 }
 
 const resolveLatestExpense = (existingExpense, incomingExpense, preferredId) => {
@@ -369,48 +358,93 @@ const upsertGuestExpense = (expense) => {
   return resolved
 }
 
-export async function flushQueuedOperations(user = auth.currentUser) {
-  const currentUser = user ?? auth.currentUser
-  if (!currentUser || !isOnline()) return readOfflineQueue().length
+const publishGuestExpenses = (listener) => {
+  listener(readGuestExpenses(), {
+    source: "guest",
+    fromCache: true,
+    hasPendingWrites: false,
+    userId: null,
+  })
+}
 
-  const queue = readOfflineQueue()
-  if (!queue.length) return 0
+export const subscribeToGuestExpenses = (listener) => {
+  if (typeof listener !== "function") {
+    return () => {}
+  }
 
-  const remaining = []
-  let syncedCount = 0
+  if (typeof window === "undefined") {
+    publishGuestExpenses(listener)
+    return () => {}
+  }
 
-  for (const operation of queue) {
-    if (operation.userId && operation.userId !== currentUser.uid) {
-      remaining.push(operation)
-      continue
+  const publish = () => publishGuestExpenses(listener)
+  const handleStorage = (event) => {
+    if (
+      event?.key &&
+      event.key !== GUEST_EXPENSES_STORAGE_KEY &&
+      event.key !== GUEST_MODE_STORAGE_KEY
+    ) {
+      return
     }
 
-    try {
-      if (operation.type === "delete") {
-        await deleteDoc(doc(db, EXPENSES_COLLECTION, String(operation.id)))
-      } else {
-        const queuedExpense = normalizeExpense(operation.expense, {
-          userId: currentUser.uid,
-          id: operation.expense?.id,
-        })
-        await setDoc(doc(db, EXPENSES_COLLECTION, queuedExpense.id), queuedExpense, {
-          merge: true,
-        })
+    publish()
+  }
+
+  publish()
+  window.addEventListener("storage", handleStorage)
+  window.addEventListener(EXPENSES_CHANGED_EVENT, publish)
+
+  return () => {
+    window.removeEventListener("storage", handleStorage)
+    window.removeEventListener(EXPENSES_CHANGED_EVENT, publish)
+  }
+}
+
+export const subscribeToExpenses = (
+  userOrListener,
+  maybeListener,
+  maybeErrorHandler,
+) => {
+  const hasExplicitUser = typeof userOrListener !== "function"
+  const user = hasExplicitUser ? userOrListener : auth.currentUser
+  const listener = hasExplicitUser ? maybeListener : userOrListener
+  const errorHandler = hasExplicitUser ? maybeErrorHandler : maybeListener
+
+  if (typeof listener !== "function") {
+    return () => {}
+  }
+
+  if (!user?.uid) {
+    return subscribeToGuestExpenses(listener)
+  }
+
+  return onSnapshot(
+    buildExpensesQuery(user),
+    { includeMetadataChanges: true },
+    (snapshot) => {
+      listener(mapSnapshotExpenses(snapshot, user.uid), {
+        source: "cloud",
+        fromCache: snapshot.metadata.fromCache,
+        hasPendingWrites: snapshot.metadata.hasPendingWrites,
+        userId: user.uid,
+      })
+    },
+    (error) => {
+      console.error("Failed to subscribe to Firestore expenses", error)
+      emitExpenseSyncError(error, {
+        operation: "subscribe",
+        userId: user.uid,
+      })
+
+      if (typeof errorHandler === "function") {
+        errorHandler(error)
       }
-      syncedCount += 1
-    } catch (error) {
-      console.error("Failed to flush queued expense operation", error)
-      remaining.push(operation)
-    }
-  }
+    },
+  )
+}
 
-  writeOfflineQueue(remaining)
-
-  if (syncedCount > 0) {
-    emitExpenseChange("sync", { syncedCount, pendingCount: remaining.length })
-  }
-
-  return remaining.length
+export async function flushQueuedOperations() {
+  return 0
 }
 
 export function initializeGuestMode() {
@@ -475,7 +509,7 @@ export async function mergeGuestExpensesIntoAccount(user = auth.currentUser) {
       cloudById.get(String(normalizedGuestExpense.id)) ?? cloudBySignature.get(signature)
 
     if (!conflict) {
-      await persistExpenseToCloud(normalizedGuestExpense, currentUser)
+      await writeExpenseToCloud(normalizedGuestExpense, currentUser)
       cloudById.set(normalizedGuestExpense.id, normalizedGuestExpense)
       cloudBySignature.set(signature, normalizedGuestExpense)
       merged += 1
@@ -488,7 +522,7 @@ export async function mergeGuestExpensesIntoAccount(user = auth.currentUser) {
         normalizedGuestExpense,
         conflict.id || normalizedGuestExpense.id,
       )
-      await persistExpenseToCloud(resolvedExpense, currentUser)
+      await writeExpenseToCloud(resolvedExpense, currentUser)
       cloudById.set(String(resolvedExpense.id), resolvedExpense)
       cloudBySignature.set(buildConflictKey(resolvedExpense), resolvedExpense)
       merged += 1
@@ -512,7 +546,6 @@ export async function getExpenses() {
 
   if (user) {
     try {
-      await flushQueuedOperations(user)
       return await getCloudExpenses(user)
     } catch (error) {
       console.error("Failed to fetch expenses from Firestore", error)
@@ -537,14 +570,18 @@ export async function addExpense(expense) {
 
   try {
     if (user) {
-      const savedExpense = await persistExpenseToCloud(nextExpense, user)
-      emitExpenseChange("add", { expense: savedExpense })
-      return savedExpense
+      const queuedExpense = queueExpenseWriteToCloud(nextExpense, user)
+      emitExpenseChange("add", {
+        expense: queuedExpense,
+        mode: "cloud",
+        pending: true,
+      })
+      return queuedExpense
     }
 
     initializeGuestMode()
     const savedExpense = upsertGuestExpense(nextExpense)
-    emitExpenseChange("add", { expense: savedExpense })
+    emitExpenseChange("add", { expense: savedExpense, mode: "guest" })
     return savedExpense
   } catch (error) {
     console.error("Failed to add expense", error)
@@ -552,12 +589,11 @@ export async function addExpense(expense) {
   }
 }
 
-export async function updateExpense(id, updates) {
+export async function updateExpense(id, updates, existingExpenseInput = null) {
   const expenseId = String(id)
-  const existingExpenses = await getExpenses()
-  const existingExpense = existingExpenses.find(
-    (currentExpense) => String(currentExpense.id) === expenseId,
-  )
+  const existingExpense =
+    existingExpenseInput ??
+    (await getExpenses()).find((currentExpense) => String(currentExpense.id) === expenseId)
   const timestamp = Date.now()
   const nextExpense = normalizeExpense(
     {
@@ -576,14 +612,18 @@ export async function updateExpense(id, updates) {
 
   try {
     if (auth.currentUser) {
-      const savedExpense = await persistExpenseToCloud(nextExpense, auth.currentUser)
-      emitExpenseChange("update", { expense: savedExpense })
+      const savedExpense = queueExpenseWriteToCloud(nextExpense, auth.currentUser)
+      emitExpenseChange("update", {
+        expense: savedExpense,
+        mode: "cloud",
+        pending: true,
+      })
       return savedExpense
     }
 
     initializeGuestMode()
     const savedExpense = upsertGuestExpense(nextExpense)
-    emitExpenseChange("update", { expense: savedExpense })
+    emitExpenseChange("update", { expense: savedExpense, mode: "guest" })
     return savedExpense
   } catch (error) {
     console.error("Failed to update expense", error)
@@ -596,8 +636,12 @@ export async function deleteExpense(id) {
 
   try {
     if (auth.currentUser) {
-      await removeExpenseFromCloud(expenseId, auth.currentUser)
-      emitExpenseChange("delete", { id: expenseId })
+      queueExpenseDeleteFromCloud(expenseId, auth.currentUser)
+      emitExpenseChange("delete", {
+        id: expenseId,
+        mode: "cloud",
+        pending: true,
+      })
       return true
     }
 
@@ -605,7 +649,7 @@ export async function deleteExpense(id) {
       (expense) => String(expense.id) !== expenseId,
     )
     writeGuestExpenses(remainingExpenses)
-    emitExpenseChange("delete", { id: expenseId })
+    emitExpenseChange("delete", { id: expenseId, mode: "guest" })
     return true
   } catch (error) {
     console.error("Failed to delete expense", error)
@@ -616,19 +660,7 @@ export async function deleteExpense(id) {
 if (typeof window !== "undefined" && !window[DATA_SERVICE_INIT_KEY]) {
   window[DATA_SERVICE_INIT_KEY] = true
 
-  window.addEventListener("online", () => {
-    flushQueuedOperations().catch((error) => {
-      console.error("Failed to sync queued expense operations", error)
-    })
-  })
-
   onAuthStateChanged(auth, (user) => {
-    if (user) {
-      flushQueuedOperations(user).catch((error) => {
-        console.error("Failed to sync queued expense operations after sign-in", error)
-      })
-    }
-
     emitExpenseChange("sourceChanged", {
       mode: user ? "cloud" : "guest",
       userId: user?.uid ?? null,
@@ -646,6 +678,8 @@ const dataService = {
   hasGuestExpenses,
   initializeGuestMode,
   mergeGuestExpensesIntoAccount,
+  subscribeToExpenses,
+  subscribeToGuestExpenses,
   updateExpense,
 }
 

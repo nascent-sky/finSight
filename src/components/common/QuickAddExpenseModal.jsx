@@ -1,12 +1,13 @@
 import { useState } from "react"
 
+import { useExpenses } from "../../context/ExpensesContext"
 import Modal from "../ui/Modal"
 import Button from "../ui/Button"
 import Input from "../ui/Input"
 import { showToast } from "../../utils/toastStore"
-import { addExpense } from "../../services/dataService"
 
 const QuickAddExpenseModal = ({ isOpen, onClose, onExpenseAdded }) => {
+  const { addExpense, isOnline, user } = useExpenses()
   const [amount, setAmount] = useState("")
   const [category, setCategory] = useState("Food & Dining")
   const [note, setNote] = useState("")
@@ -46,7 +47,13 @@ const QuickAddExpenseModal = ({ isOpen, onClose, onExpenseAdded }) => {
         throw new Error("Expense creation failed")
       }
 
-      showToast(`Expense saved: Rs ${parsedAmount}`, "success", 2500)
+      showToast(
+        user && !isOnline
+          ? `Expense saved offline: Rs ${parsedAmount}`
+          : `Expense saved: Rs ${parsedAmount}`,
+        "success",
+        2500,
+      )
 
       if (typeof onExpenseAdded === "function") {
         onExpenseAdded(newExpense)

@@ -13,72 +13,45 @@ import AISuggestions from "../components/common/AISuggestions"
 import SmartAIAdvisor from "../components/common/SmartAIAdvisor"
 import LifestyleExpenseTracker from "../components/common/LifestyleExpenseTracker"
 import QuickAddExpenseModal from "../components/common/QuickAddExpenseModal"
+import { useExpenses } from "../context/ExpensesContext"
 import settingsService from "../services/settingsService"
-import { EXPENSES_CHANGED_EVENT, getExpenses } from "../services/dataService"
 
 const Dashboard = () => {
+  const { expenses } = useExpenses()
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false)
-  const [recentExpenses, setRecentExpenses] = useState([])
-  const [financialData, setFinancialData] = useState({
-    monthlyIncome: settingsService.getMonthlyIncome(),
-    totalExpenses: 0,
-    expenses: [],
-    savingsGoal: 5000,
-    riskTolerance: settingsService.getSettings().riskTolerance,
-  })
+  const initialSettings = settingsService.getSettings()
+  const [monthlyIncome, setMonthlyIncome] = useState(Number(initialSettings.monthlyIncome) || 0)
+  const [riskTolerance, setRiskTolerance] = useState(initialSettings.riskTolerance)
 
+  const totalExpenses = expenses.reduce(
+    (sum, expense) => sum + (Number(expense.amount) || 0),
+    0,
+  )
+  const recentExpenses = expenses.slice(0, 5)
+  const financialData = {
+    monthlyIncome,
+    totalExpenses,
+    expenses,
+    savingsGoal: 5000,
+    riskTolerance,
+  }
   const leftoverMoney = financialData.monthlyIncome - financialData.totalExpenses
   const savingsRate = financialData.monthlyIncome
     ? ((leftoverMoney / financialData.monthlyIncome) * 100).toFixed(1)
     : "0.0"
 
   useEffect(() => {
-    let isMounted = true
-
-    const loadData = async () => {
-      try {
-        const storedExpenses = await getExpenses()
-        const settings = settingsService.getSettings()
-        const expensesArray = Array.isArray(storedExpenses) ? storedExpenses : []
-
-        if (!isMounted) return
-
-        setFinancialData((previous) => ({
-          ...previous,
-          monthlyIncome: settings.monthlyIncome,
-          riskTolerance: settings.riskTolerance,
-          expenses: expensesArray,
-          totalExpenses: expensesArray.reduce(
-            (sum, expense) => sum + (Number(expense.amount) || 0),
-            0,
-          ),
-        }))
-
-        setRecentExpenses(expensesArray.slice(0, 5))
-      } catch (error) {
-        console.error("Failed to load dashboard data:", error)
-      }
-    }
-
     const handleSettingsUpdated = (event) => {
       const { settings } = event.detail || {}
-      if (!settings || !isMounted) return
+      if (!settings) return
 
-      setFinancialData((previous) => ({
-        ...previous,
-        monthlyIncome: settings.monthlyIncome,
-        riskTolerance: settings.riskTolerance,
-      }))
+      setMonthlyIncome(Number(settings.monthlyIncome) || 0)
+      setRiskTolerance(settings.riskTolerance)
     }
 
-    loadData()
-
-    window.addEventListener(EXPENSES_CHANGED_EVENT, loadData)
     window.addEventListener("settingsUpdated", handleSettingsUpdated)
 
     return () => {
-      isMounted = false
-      window.removeEventListener(EXPENSES_CHANGED_EVENT, loadData)
       window.removeEventListener("settingsUpdated", handleSettingsUpdated)
     }
   }, [])

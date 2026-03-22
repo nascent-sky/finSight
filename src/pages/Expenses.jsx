@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Plus, Search, Trash2 } from "lucide-react"
 
 import Card from "../components/ui/Card"
@@ -7,15 +7,10 @@ import Button from "../components/ui/Button"
 import SmartExpenseAnalyzer from "../components/common/SmartExpenseAnalyzer"
 import VoiceRecorder from "../components/common/VoiceRecorder"
 import { ToastContainer } from "../components/common/Toast"
-import {
-  addExpense,
-  deleteExpense,
-  EXPENSES_CHANGED_EVENT,
-  getExpenses,
-} from "../services/dataService"
+import { useExpenses } from "../context/ExpensesContext"
 
 const Expenses = () => {
-  const [expenses, setExpenses] = useState([])
+  const { addExpense, deleteExpense, expenses, hasPendingWrites, isReady } = useExpenses()
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("All")
 
@@ -60,36 +55,18 @@ const Expenses = () => {
       }
     })
 
-  useEffect(() => {
-    let isMounted = true
-
-    const loadExpenses = async () => {
-      try {
-        const storedExpenses = await getExpenses()
-        if (!isMounted) return
-        setExpenses(Array.isArray(storedExpenses) ? storedExpenses : [])
-      } catch (error) {
-        console.error("Failed to load expenses", error)
-      }
-    }
-
-    loadExpenses()
-    window.addEventListener(EXPENSES_CHANGED_EVENT, loadExpenses)
-
-    return () => {
-      isMounted = false
-      window.removeEventListener(EXPENSES_CHANGED_EVENT, loadExpenses)
-    }
-  }, [])
-
   const handleVoiceExpenseDetected = async (newExpense) => {
-    await addExpense({
+    const savedExpense = await addExpense({
       amount: Number(newExpense.amount) || 0,
       category: newExpense.category || "Other",
       note: newExpense.note || newExpense.merchant || "Voice input",
       date: newExpense.date || new Date().toISOString().split("T")[0],
       merchant: newExpense.merchant,
     })
+
+    if (!savedExpense) {
+      alert("Could not save this expense right now.")
+    }
   }
 
   const handleQuickAdd = async () => {
@@ -106,17 +83,25 @@ const Expenses = () => {
       window.prompt("Category (e.g. Food & Dining)", "Food & Dining") || "Other"
     const note = window.prompt("Note (optional)", "") || ""
 
-    await addExpense({
+    const savedExpense = await addExpense({
       amount,
       category,
       note,
       date: new Date().toISOString().split("T")[0],
     })
+
+    if (!savedExpense) {
+      alert("Could not save this expense right now.")
+    }
   }
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this expense?")) return
-    await deleteExpense(id)
+    const deleted = await deleteExpense(id)
+
+    if (!deleted) {
+      alert("Could not delete this expense right now.")
+    }
   }
 
   return (
@@ -136,9 +121,16 @@ const Expenses = () => {
 
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Recent Transactions
-          </h2>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Recent Transactions
+            </h2>
+            {hasPendingWrites ? (
+              <p className="theme-muted-text mt-1 text-xs">
+                Saving locally and syncing to your account...
+              </p>
+            ) : null}
+          </div>
           <Button onClick={handleQuickAdd} className="flex items-center gap-2">
             <Plus size={16} />
             Add Expense
@@ -220,7 +212,9 @@ const Expenses = () => {
           ) : (
             <Card padding="lg" className="text-center">
               <p className="text-gray-500 dark:text-gray-400">
-                No expenses found matching your filters
+                {isReady
+                  ? "No expenses found matching your filters"
+                  : "Loading expenses..."}
               </p>
             </Card>
           )}

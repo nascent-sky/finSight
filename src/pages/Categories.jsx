@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Plus, Trash2 } from "lucide-react"
 
 import Card from "../components/ui/Card"
 import Button from "../components/ui/Button"
 import Input from "../components/ui/Input"
 import Modal from "../components/ui/Modal"
-import { EXPENSES_CHANGED_EVENT, getExpenses } from "../services/dataService"
+import { useExpenses } from "../context/ExpensesContext"
 
 const initialCategories = [
   { id: 1, name: "Food & Dining", emoji: "Meal" },
@@ -19,8 +19,8 @@ const initialCategories = [
 ]
 
 const Categories = () => {
+  const { expenses } = useExpenses()
   const [categories, setCategories] = useState(initialCategories)
-  const [expenses, setExpenses] = useState([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [newCategory, setNewCategory] = useState({ name: "", emoji: "Misc" })
 
@@ -50,29 +50,6 @@ const Categories = () => {
   const handleDeleteCategory = (id) => {
     setCategories((previous) => previous.filter((category) => category.id !== id))
   }
-
-  useEffect(() => {
-    let isMounted = true
-
-    const loadExpenses = async () => {
-      try {
-        const storedExpenses = await getExpenses()
-        if (!isMounted) return
-        setExpenses(Array.isArray(storedExpenses) ? storedExpenses : [])
-      } catch (error) {
-        console.error("Failed to load expenses", error)
-      }
-    }
-
-    loadExpenses()
-    window.addEventListener(EXPENSES_CHANGED_EVENT, loadExpenses)
-
-    return () => {
-      isMounted = false
-      window.removeEventListener(EXPENSES_CHANGED_EVENT, loadExpenses)
-    }
-  }, [])
-
   return (
     <div className="space-y-6">
       <div className="theme-hero rounded-2xl p-6 shadow-lg">

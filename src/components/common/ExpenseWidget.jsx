@@ -1,12 +1,13 @@
 import { useState } from "react"
 import { Mic, Plus } from "lucide-react"
 
+import { useExpenses } from "../../context/ExpensesContext"
 import Card from "../ui/Card"
 import { useVoiceToExpense } from "../../hooks/useVoiceToExpense"
 import { showToast } from "../../utils/toastStore"
-import { addExpense } from "../../services/dataService"
 
 const ExpenseWidget = () => {
+  const { addExpense, isOnline, user } = useExpenses()
   const [isProcessing, setIsProcessing] = useState(false)
 
   const { isListening, transcript, startListening, stopListening } = useVoiceToExpense(
@@ -21,13 +22,18 @@ const ExpenseWidget = () => {
         merchant: expense.merchant,
       })
 
-      if (savedExpense) {
-        showToast(
-          `Saved: Rs ${savedExpense.amount} - ${savedExpense.category}`,
-          "success",
-          3000,
-        )
+      if (!savedExpense) {
+        showToast("Could not save this expense right now", "error")
+        return
       }
+
+      showToast(
+        user && !isOnline
+          ? `Saved offline: Rs ${savedExpense.amount} - syncing when you reconnect`
+          : `Saved: Rs ${savedExpense.amount} - ${savedExpense.category}`,
+        "success",
+        3000,
+      )
     },
   )
 
@@ -54,9 +60,18 @@ const ExpenseWidget = () => {
         date: new Date().toISOString().split("T")[0],
       })
 
-      if (savedExpense) {
-        showToast(`Expense saved: Rs ${savedExpense.amount}`, "success", 2500)
+      if (!savedExpense) {
+        showToast("Could not save this expense right now", "error")
+        return
       }
+
+      showToast(
+        user && !isOnline
+          ? `Expense saved offline: Rs ${savedExpense.amount}`
+          : `Expense saved: Rs ${savedExpense.amount}`,
+        "success",
+        2500,
+      )
     } finally {
       setIsProcessing(false)
     }

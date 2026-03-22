@@ -1,9 +1,24 @@
 import { Menu, Plus } from "lucide-react"
 
+import { useExpenses } from "../../context/ExpensesContext"
 import Button from "../ui/Button"
 import BrandedHeader from "../common/BrandedHeader"
 
 const Header = ({ title, onMenuClick, onAddClick }) => {
+  const { expenseError, hasPendingWrites, isOnline, persistenceState, user } = useExpenses()
+
+  const statusLabel = expenseError
+    ? "Sync issue"
+    : hasPendingWrites
+      ? "Syncing..."
+      : !isOnline
+        ? "Offline"
+        : !persistenceState.enabled && persistenceState.attempted && user
+          ? "Cloud cache off"
+          : ""
+
+  const statusTitle = expenseError || persistenceState.message || ""
+
   return (
     <header className="theme-card theme-border sticky top-0 z-40 flex items-center justify-between border-b px-4 py-3 shadow-sm">
       <div className="flex items-center gap-4">
@@ -23,10 +38,21 @@ const Header = ({ title, onMenuClick, onAddClick }) => {
         </div>
       </div>
 
-      <Button size="sm" className="flex items-center gap-1" onClick={onAddClick}>
-        <Plus size={16} />
-        <span className="hidden sm:inline">Add</span>
-      </Button>
+      <div className="flex items-center gap-3">
+        {statusLabel ? (
+          <div
+            className="theme-panel theme-muted-text rounded-full px-3 py-1 text-xs font-medium"
+            title={statusTitle}
+          >
+            {statusLabel}
+          </div>
+        ) : null}
+
+        <Button size="sm" className="flex items-center gap-1" onClick={onAddClick}>
+          <Plus size={16} />
+          <span className="hidden sm:inline">Add</span>
+        </Button>
+      </div>
     </header>
   )
 }

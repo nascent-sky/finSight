@@ -5,18 +5,14 @@ import Card from "../components/ui/Card"
 import InvestmentSimulator from "../components/common/InvestmentSimulator"
 import FinancialGoalPlanner from "../components/common/FinancialGoalPlanner"
 import WealthProjectionCalculator from "../components/common/WealthProjectionCalculator"
+import { useExpenses } from "../context/ExpensesContext"
 import settingsService from "../services/settingsService"
-import { EXPENSES_CHANGED_EVENT, getExpenses } from "../services/dataService"
 
 const Analytics = () => {
+  const { expenses } = useExpenses()
   const [monthlyIncome, setMonthlyIncome] = useState(
     Number(settingsService.getMonthlyIncome()) || 0,
   )
-  const [monthlyStats, setMonthlyStats] = useState({
-    totalExpenses: 0,
-    weeklyBreakdown: {},
-    categoryBreakdown: {},
-  })
 
   const calculateStats = (expenseList) => {
     const today = new Date()
@@ -61,36 +57,19 @@ const Analytics = () => {
   }
 
   useEffect(() => {
-    let isMounted = true
-
-    const loadAnalytics = async () => {
-      try {
-        const storedExpenses = await getExpenses()
-        const expenseList = Array.isArray(storedExpenses) ? storedExpenses : []
-
-        if (!isMounted) return
-        setMonthlyStats(calculateStats(expenseList))
-      } catch (error) {
-        console.error("Failed to load expenses", error)
-      }
-    }
-
     const handleSettingsUpdated = (event) => {
       const { settings } = event.detail || {}
-      if (settings?.monthlyIncome == null || !isMounted) return
+      if (settings?.monthlyIncome == null) return
       setMonthlyIncome(Number(settings.monthlyIncome) || 0)
     }
 
-    loadAnalytics()
-    window.addEventListener(EXPENSES_CHANGED_EVENT, loadAnalytics)
     window.addEventListener("settingsUpdated", handleSettingsUpdated)
 
     return () => {
-      isMounted = false
-      window.removeEventListener(EXPENSES_CHANGED_EVENT, loadAnalytics)
       window.removeEventListener("settingsUpdated", handleSettingsUpdated)
     }
   }, [])
+  const monthlyStats = calculateStats(expenses)
 
   const leftoverMoney = monthlyIncome - monthlyStats.totalExpenses
 

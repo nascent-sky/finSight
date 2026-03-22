@@ -4,7 +4,7 @@ import { Mic, MicOff } from "lucide-react"
 import Card from "../components/ui/Card"
 import Input from "../components/ui/Input"
 import Button from "../components/ui/Button"
-import { addExpense } from "../services/dataService"
+import { useExpenses } from "../context/ExpensesContext"
 
 const categories = [
   "Food & Dining",
@@ -16,6 +16,7 @@ const categories = [
 ]
 
 const AddExpense = () => {
+  const { addExpense, hasPendingWrites, isOnline, user } = useExpenses()
   const [amount, setAmount] = useState("")
   const [selectedCategory, setSelectedCategory] = useState(categories[0])
   const [note, setNote] = useState("")
@@ -40,13 +41,20 @@ const AddExpense = () => {
         date,
       })
 
-      if (savedExpense) {
-        alert("Expense saved successfully!")
-        setAmount("")
-        setNote("")
-        setDate(new Date().toISOString().split("T")[0])
-        setSelectedCategory(categories[0])
+      if (!savedExpense) {
+        alert("Failed to save expense")
+        return
       }
+
+      alert(
+        user && !isOnline
+          ? "Expense saved offline. It will sync automatically when you're back online."
+          : "Expense saved successfully!",
+      )
+      setAmount("")
+      setNote("")
+      setDate(new Date().toISOString().split("T")[0])
+      setSelectedCategory(categories[0])
     } catch (error) {
       console.error("Failed to save expense", error)
       alert("Failed to save expense")
@@ -138,6 +146,11 @@ const AddExpense = () => {
         <Button onClick={handleSave} className="w-full py-3 text-base" disabled={saving}>
           {saving ? "Saving..." : "Save Expense"}
         </Button>
+        {hasPendingWrites ? (
+          <p className="theme-muted-text mt-3 text-center text-xs">
+            Your latest changes are saved locally and syncing to Firestore.
+          </p>
+        ) : null}
       </div>
     </div>
   )

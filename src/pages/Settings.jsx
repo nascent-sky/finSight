@@ -54,9 +54,11 @@ const Settings = () => {
     }
 
     window.addEventListener(EXPENSES_CHANGED_EVENT, refreshGuestExpenseCount)
+    window.addEventListener("storage", refreshGuestExpenseCount)
 
     return () => {
       window.removeEventListener(EXPENSES_CHANGED_EVENT, refreshGuestExpenseCount)
+      window.removeEventListener("storage", refreshGuestExpenseCount)
     }
   }, [])
 

@@ -7,8 +7,13 @@ import Header from "./components/layout/Header"
 import BottomNav from "./components/layout/BottomNav"
 import QuickAddExpenseModal from "./components/common/QuickAddExpenseModal"
 import ExpenseWidget from "./components/common/ExpenseWidget"
+import { ExpensesContext } from "./context/ExpensesContext"
 import { ThemeContext } from "./context/ThemeContext"
-import { auth } from "./firebase"
+import {
+  auth,
+  getFirestorePersistenceState,
+  subscribeToFirestorePersistenceState,
+} from "./firebase"
 import Login from "./pages/auth/Login"
 import Register from "./pages/auth/Register"
 import Dashboard from "./pages/Dashboard"
@@ -30,11 +35,23 @@ import {
   THEME_PREFERENCE_EVENT,
   THEME_STORAGE_KEY,
 } from "./services/themeService"
+import {
+  addExpense as createExpense,
+  deleteExpense as removeExpense,
+  EXPENSES_SYNC_ERROR_EVENT,
+  subscribeToExpenses,
+  updateExpense as editExpense,
+} from "./services/dataService"
 
 const getSystemMode = () => {
   if (typeof window === "undefined") return "light"
 
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+}
+
+const getOnlineState = () => {
+  if (typeof navigator === "undefined") return true
+  return navigator.onLine
 }
 
 const AuthLayout = ({
@@ -75,12 +92,25 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false)
   const [user, setUser] = useState(null)
+  const [isAuthReady, setIsAuthReady] = useState(false)
   const [systemMode, setSystemMode] = useState(getSystemMode)
   const [themePreference, setThemePreference] = useState(getStoredThemePreference)
+  const [expenses, setExpenses] = useState([])
+  const [expenseState, setExpenseState] = useState({
+    errorMessage: "",
+    fromCache: true,
+    hasPendingWrites: false,
+    isReady: false,
+    source: "guest",
+    userId: null,
+  })
+  const [isOnline, setIsOnline] = useState(getOnlineState)
+  const [persistenceState, setPersistenceState] = useState(getFirestorePersistenceState)
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser)
+      setIsAuthReady(true)
 
       if (!currentUser) {
         setThemePreference(getStoredThemePreference())
@@ -99,6 +129,29 @@ function App() {
     })
 
     return () => unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined
+
+    const updateOnlineState = () => {
+      setIsOnline(navigator.onLine)
+    }
+
+    updateOnlineState()
+    window.addEventListener("online", updateOnlineState)
+    window.addEventListener("offline", updateOnlineState)
+
+    return () => {
+      window.removeEventListener("online", updateOnlineState)
+      window.removeEventListener("offline", updateOnlineState)
+    }
+  }, [])
+
+  useEffect(() => {
+    return subscribeToFirestorePersistenceState((nextState) => {
+      setPersistenceState(nextState)
+    })
   }, [])
 
   useEffect(() => {
@@ -150,6 +203,51 @@ function App() {
     }
   }, [user])
 
+  useEffect(() => {
+    if (!isAuthReady) return undefined
+
+    return subscribeToExpenses(
+      user,
+      (nextExpenses, metadata = {}) => {
+        setExpenses(Array.isArray(nextExpenses) ? nextExpenses : [])
+        setExpenseState({
+          errorMessage: "",
+          fromCache: Boolean(metadata.fromCache),
+          hasPendingWrites: Boolean(metadata.hasPendingWrites),
+          isReady: true,
+          source: metadata.source || (user?.uid ? "cloud" : "guest"),
+          userId: metadata.userId ?? null,
+        })
+      },
+      (error) => {
+        setExpenseState((previous) => ({
+          ...previous,
+          errorMessage: error?.message || "Could not sync expenses right now.",
+          isReady: true,
+          source: user?.uid ? "cloud" : "guest",
+          userId: user?.uid ?? null,
+        }))
+      },
+    )
+  }, [isAuthReady, user])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined
+
+    const handleExpenseSyncError = (event) => {
+      setExpenseState((previous) => ({
+        ...previous,
+        errorMessage: event.detail?.message || "Could not sync expenses right now.",
+      }))
+    }
+
+    window.addEventListener(EXPENSES_SYNC_ERROR_EVENT, handleExpenseSyncError)
+
+    return () => {
+      window.removeEventListener(EXPENSES_SYNC_ERROR_EVENT, handleExpenseSyncError)
+    }
+  }, [])
+
   const activeMode = resolveMode(themePreference.modePreference, systemMode)
   const activeTheme = getTheme(themePreference.themeId)
 
@@ -191,6 +289,51 @@ function App() {
     setIsQuickAddOpen(true)
   }
 
+  const runExpenseMutation = async (mutation) => {
+    if (user?.uid && !isOnline && !persistenceState.enabled) {
+      const message =
+        persistenceState.message ||
+        "Offline cloud caching is unavailable in this browser session."
+
+      setExpenseState((previous) => ({
+        ...previous,
+        errorMessage: message,
+        source: user?.uid ? "cloud" : "guest",
+        userId: user?.uid ?? null,
+      }))
+
+      return null
+    }
+
+    return mutation()
+  }
+
+  const handleAddExpense = (expense) => runExpenseMutation(() => createExpense(expense))
+  const handleUpdateExpense = (id, updates, existingExpense) =>
+    runExpenseMutation(() => editExpense(id, updates, existingExpense))
+  const handleDeleteExpense = (id) => runExpenseMutation(() => removeExpense(id))
+  const activeExpenseSource = user?.uid ? "cloud" : "guest"
+  const activeExpenseOwnerId = user?.uid ?? null
+  const isMatchingExpenseFeed =
+    expenseState.source === activeExpenseSource && expenseState.userId === activeExpenseOwnerId
+  const visibleExpenses = isMatchingExpenseFeed ? expenses : []
+
+  const expenseContextValue = {
+    addExpense: handleAddExpense,
+    deleteExpense: handleDeleteExpense,
+    expenses: visibleExpenses,
+    expenseError: isMatchingExpenseFeed ? expenseState.errorMessage : "",
+    expenseSource: expenseState.source,
+    fromCache: isMatchingExpenseFeed ? expenseState.fromCache : true,
+    hasPendingWrites: isMatchingExpenseFeed ? expenseState.hasPendingWrites : false,
+    isOnline,
+    isReady: isMatchingExpenseFeed && expenseState.isReady,
+    isSyncing: isMatchingExpenseFeed && expenseState.hasPendingWrites,
+    persistenceState,
+    updateExpense: handleUpdateExpense,
+    user,
+  }
+
   return (
     <ThemeContext.Provider
       value={{
@@ -203,103 +346,105 @@ function App() {
         user,
       }}
     >
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+      <ExpensesContext.Provider value={expenseContextValue}>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
 
-          <Route
-            path="/"
-            element={
-              <AuthLayout
-                user={user}
-                isSidebarOpen={isSidebarOpen}
-                setIsSidebarOpen={setIsSidebarOpen}
-                onAddClick={handleQuickAddExpense}
-                isQuickAddOpen={isQuickAddOpen}
-                setIsQuickAddOpen={setIsQuickAddOpen}
-              >
-                <Dashboard />
-              </AuthLayout>
-            }
-          />
-          <Route
-            path="/expenses"
-            element={
-              <AuthLayout
-                user={user}
-                isSidebarOpen={isSidebarOpen}
-                setIsSidebarOpen={setIsSidebarOpen}
-                onAddClick={handleQuickAddExpense}
-                isQuickAddOpen={isQuickAddOpen}
-                setIsQuickAddOpen={setIsQuickAddOpen}
-              >
-                <Expenses />
-              </AuthLayout>
-            }
-          />
-          <Route
-            path="/analytics"
-            element={
-              <AuthLayout
-                user={user}
-                isSidebarOpen={isSidebarOpen}
-                setIsSidebarOpen={setIsSidebarOpen}
-                onAddClick={handleQuickAddExpense}
-                isQuickAddOpen={isQuickAddOpen}
-                setIsQuickAddOpen={setIsQuickAddOpen}
-              >
-                <Analytics />
-              </AuthLayout>
-            }
-          />
-          <Route
-            path="/categories"
-            element={
-              <AuthLayout
-                user={user}
-                isSidebarOpen={isSidebarOpen}
-                setIsSidebarOpen={setIsSidebarOpen}
-                onAddClick={handleQuickAddExpense}
-                isQuickAddOpen={isQuickAddOpen}
-                setIsQuickAddOpen={setIsQuickAddOpen}
-              >
-                <Categories />
-              </AuthLayout>
-            }
-          />
-          <Route
-            path="/add-expense"
-            element={
-              <AuthLayout
-                user={user}
-                isSidebarOpen={isSidebarOpen}
-                setIsSidebarOpen={setIsSidebarOpen}
-                onAddClick={handleQuickAddExpense}
-                isQuickAddOpen={isQuickAddOpen}
-                setIsQuickAddOpen={setIsQuickAddOpen}
-              >
-                <AddExpense />
-              </AuthLayout>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <AuthLayout
-                user={user}
-                isSidebarOpen={isSidebarOpen}
-                setIsSidebarOpen={setIsSidebarOpen}
-                onAddClick={handleQuickAddExpense}
-                isQuickAddOpen={isQuickAddOpen}
-                setIsQuickAddOpen={setIsQuickAddOpen}
-              >
-                <Settings />
-              </AuthLayout>
-            }
-          />
-        </Routes>
-      </BrowserRouter>
+            <Route
+              path="/"
+              element={
+                <AuthLayout
+                  user={user}
+                  isSidebarOpen={isSidebarOpen}
+                  setIsSidebarOpen={setIsSidebarOpen}
+                  onAddClick={handleQuickAddExpense}
+                  isQuickAddOpen={isQuickAddOpen}
+                  setIsQuickAddOpen={setIsQuickAddOpen}
+                >
+                  <Dashboard />
+                </AuthLayout>
+              }
+            />
+            <Route
+              path="/expenses"
+              element={
+                <AuthLayout
+                  user={user}
+                  isSidebarOpen={isSidebarOpen}
+                  setIsSidebarOpen={setIsSidebarOpen}
+                  onAddClick={handleQuickAddExpense}
+                  isQuickAddOpen={isQuickAddOpen}
+                  setIsQuickAddOpen={setIsQuickAddOpen}
+                >
+                  <Expenses />
+                </AuthLayout>
+              }
+            />
+            <Route
+              path="/analytics"
+              element={
+                <AuthLayout
+                  user={user}
+                  isSidebarOpen={isSidebarOpen}
+                  setIsSidebarOpen={setIsSidebarOpen}
+                  onAddClick={handleQuickAddExpense}
+                  isQuickAddOpen={isQuickAddOpen}
+                  setIsQuickAddOpen={setIsQuickAddOpen}
+                >
+                  <Analytics />
+                </AuthLayout>
+              }
+            />
+            <Route
+              path="/categories"
+              element={
+                <AuthLayout
+                  user={user}
+                  isSidebarOpen={isSidebarOpen}
+                  setIsSidebarOpen={setIsSidebarOpen}
+                  onAddClick={handleQuickAddExpense}
+                  isQuickAddOpen={isQuickAddOpen}
+                  setIsQuickAddOpen={setIsQuickAddOpen}
+                >
+                  <Categories />
+                </AuthLayout>
+              }
+            />
+            <Route
+              path="/add-expense"
+              element={
+                <AuthLayout
+                  user={user}
+                  isSidebarOpen={isSidebarOpen}
+                  setIsSidebarOpen={setIsSidebarOpen}
+                  onAddClick={handleQuickAddExpense}
+                  isQuickAddOpen={isQuickAddOpen}
+                  setIsQuickAddOpen={setIsQuickAddOpen}
+                >
+                  <AddExpense />
+                </AuthLayout>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <AuthLayout
+                  user={user}
+                  isSidebarOpen={isSidebarOpen}
+                  setIsSidebarOpen={setIsSidebarOpen}
+                  onAddClick={handleQuickAddExpense}
+                  isQuickAddOpen={isQuickAddOpen}
+                  setIsQuickAddOpen={setIsQuickAddOpen}
+                >
+                  <Settings />
+                </AuthLayout>
+              }
+            />
+          </Routes>
+        </BrowserRouter>
+      </ExpensesContext.Provider>
     </ThemeContext.Provider>
   )
 }

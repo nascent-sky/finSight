@@ -1,18 +1,52 @@
-import { useEffect, useState } from "react"
-import { DollarSign, Download, Lightbulb, User } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import {
+  DollarSign,
+  Download,
+  Lightbulb,
+  Palette,
+  SunMoon,
+  Upload,
+  User,
+} from "lucide-react"
 
 import Card from "../components/ui/Card"
 import Button from "../components/ui/Button"
 import Input from "../components/ui/Input"
-import settingsService from "../services/settingsService"
+import { useTheme } from "../context/ThemeContext"
 import { EXPENSES_CHANGED_EVENT, getGuestExpenses } from "../services/dataService"
+import settingsService from "../services/settingsService"
+import { normalizeThemePreference } from "../services/themeService"
+
+const MODE_OPTIONS = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+]
 
 const Settings = () => {
   const initialSettings = settingsService.getSettings()
+  const fileInputRef = useRef(null)
+  const {
+    activeMode,
+    currentTheme,
+    setThemePreference,
+    systemMode,
+    themePreference,
+    themes,
+    user,
+  } = useTheme()
+
   const [monthlyIncome, setMonthlyIncome] = useState(initialSettings.monthlyIncome)
   const [riskTolerance, setRiskTolerance] = useState(initialSettings.riskTolerance)
-  const [isSaved, setIsSaved] = useState(false)
   const [guestExpenseCount, setGuestExpenseCount] = useState(() => getGuestExpenses().length)
+  const [notice, setNotice] = useState("")
+
+  useEffect(() => {
+    if (!notice) return undefined
+
+    const timeoutId = window.setTimeout(() => setNotice(""), 3000)
+    return () => window.clearTimeout(timeoutId)
+  }, [notice])
 
   useEffect(() => {
     const refreshGuestExpenseCount = () => {
@@ -26,18 +60,32 @@ const Settings = () => {
     }
   }, [])
 
+  const showNotice = (message) => {
+    setNotice(message)
+  }
+
   const handleSaveIncome = () => {
     if (monthlyIncome && monthlyIncome > 0) {
       settingsService.updateSettings({ monthlyIncome })
-      setIsSaved(true)
-      setTimeout(() => setIsSaved(false), 3000)
+      showNotice("Income saved.")
     }
   }
 
   const handleSaveRiskTolerance = () => {
     settingsService.updateSettings({ riskTolerance })
-    setIsSaved(true)
-    setTimeout(() => setIsSaved(false), 3000)
+    showNotice("Risk profile saved.")
+  }
+
+  const handleThemeSelect = async (themeId) => {
+    await setThemePreference({ themeId })
+    showNotice(user ? "Theme synced to your account." : "Theme saved for guest mode.")
+  }
+
+  const handleModeSelect = async (modePreference) => {
+    await setThemePreference({ modePreference })
+    showNotice(
+      user ? "Appearance mode synced to your account." : "Appearance mode saved.",
+    )
   }
 
   const downloadFile = (filename, content, mimeType) => {
@@ -74,14 +122,18 @@ const Settings = () => {
 
   const handleExport = (format) => {
     const guestExpenses = getGuestExpenses()
-    if (!guestExpenses.length) return
+    const exportPayload = {
+      exportedAt: new Date().toISOString(),
+      themePreference,
+      expenses: guestExpenses,
+    }
 
     const dateStamp = new Date().toISOString().slice(0, 10)
 
     if (format === "json") {
       downloadFile(
-        `finsight-guest-expenses-${dateStamp}.json`,
-        JSON.stringify(guestExpenses, null, 2),
+        `finsight-backup-${dateStamp}.json`,
+        JSON.stringify(exportPayload, null, 2),
         "application/json",
       )
       return
@@ -94,9 +146,31 @@ const Settings = () => {
     )
   }
 
+  const handleImportTheme = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      const content = await file.text()
+      const parsed = JSON.parse(content)
+
+      if (!parsed?.themePreference) {
+        throw new Error("No theme preference found in this backup.")
+      }
+
+      await setThemePreference(normalizeThemePreference(parsed.themePreference))
+      showNotice("Theme settings imported.")
+    } catch (error) {
+      console.error("Failed to import theme settings", error)
+      showNotice("Could not import theme settings.")
+    } finally {
+      event.target.value = ""
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl bg-linear-to-r from-indigo-600 to-purple-600 p-6 text-white shadow-lg">
+      <div className="theme-hero rounded-2xl p-6 shadow-lg">
         <div className="flex items-center gap-3">
           <div className="rounded-full bg-white/20 p-2">
             <User size={28} />
@@ -108,11 +182,159 @@ const Settings = () => {
         </div>
       </div>
 
-      {isSaved ? (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-800">
-          Settings saved successfully!
+      {notice ? (
+        <div className="rounded-lg border px-4 py-3 text-sm" style={{
+          backgroundColor: "var(--accent-soft-color)",
+          borderColor: "var(--border-color)",
+          color: "var(--text-color)",
+        }}>
+          {notice}
         </div>
       ) : null}
+
+      <Card padding="lg">
+        <div className="flex items-start gap-4">
+          <div
+            className="shrink-0 rounded-full p-3"
+            style={{ backgroundColor: "var(--accent-soft-color)" }}
+          >
+            <Palette size={24} className="theme-accent-text" />
+          </div>
+          <div className="flex-1">
+            <h2 className="theme-text mb-2 text-xl font-semibold">Theme & Font</h2>
+            <p className="theme-muted-text mb-4 text-sm">
+              Pick a curated look. When you are logged in, theme changes sync instantly
+              across your other signed-in browsers and devices.
+            </p>
+
+            <div className="mb-5">
+              <div className="mb-3 flex items-center gap-2">
+                <SunMoon size={16} className="theme-accent-text" />
+                <h3 className="theme-text text-sm font-semibold">Color Mode</h3>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {MODE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className="theme-mode-button rounded-xl border px-4 py-3 text-sm font-semibold transition-all"
+                    data-active={String(themePreference.modePreference === option.value)}
+                    onClick={() => handleModeSelect(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <p className="theme-muted-text mt-3 text-xs">
+                Active palette: <strong>{activeMode}</strong>. System preference is{" "}
+                <strong>{systemMode}</strong>.
+              </p>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-3">
+              {themes.map((themeOption) => {
+                const previewPalette = themeOption.colors[activeMode]
+
+                return (
+                  <button
+                    key={themeOption.id}
+                    type="button"
+                    className="theme-preview-card theme-preview-card rounded-2xl p-4 text-left transition-transform hover:-translate-y-1"
+                    data-selected={String(themePreference.themeId === themeOption.id)}
+                    onClick={() => handleThemeSelect(themeOption.id)}
+                  >
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                      <div>
+                        <h3
+                          className="text-lg font-semibold"
+                          style={{
+                            color: previewPalette.text,
+                            fontFamily: themeOption.fontFamily,
+                          }}
+                        >
+                          {themeOption.label}
+                        </h3>
+                        <p
+                          className="mt-1 text-sm"
+                          style={{ color: previewPalette.muted }}
+                        >
+                          {themeOption.description}
+                        </p>
+                      </div>
+                      <span className="theme-theme-badge rounded-full px-3 py-1 text-xs font-semibold">
+                        {themePreference.themeId === themeOption.id ? "Selected" : "Preview"}
+                      </span>
+                    </div>
+
+                    <div
+                      className="rounded-2xl border p-4"
+                      style={{
+                        backgroundColor: previewPalette.background,
+                        borderColor: previewPalette.border,
+                        color: previewPalette.text,
+                        fontFamily: themeOption.fontFamily,
+                      }}
+                    >
+                      <div className="flex gap-2">
+                        <span
+                          className="theme-preview-swatch h-3 flex-1 rounded-full"
+                          style={{ backgroundColor: previewPalette.background }}
+                        />
+                        <span
+                          className="theme-preview-swatch h-3 flex-1 rounded-full"
+                          style={{ backgroundColor: previewPalette.surface }}
+                        />
+                        <span
+                          className="theme-preview-swatch h-3 flex-1 rounded-full"
+                          style={{ backgroundColor: previewPalette.accent }}
+                        />
+                      </div>
+
+                      <div
+                        className="mt-4 rounded-xl px-3 py-2 text-sm font-semibold"
+                        style={{
+                          background:
+                            `linear-gradient(135deg, ${previewPalette.accent}, ${previewPalette.accentStrong})`,
+                          color: previewPalette.accentContrast,
+                        }}
+                      >
+                        FinSight preview
+                      </div>
+
+                      <p className="mt-3 text-sm">
+                        Reports, widgets, and modals inherit this font and palette.
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div
+              className="mt-5 rounded-2xl border p-4"
+              style={{
+                backgroundColor: "var(--surface-muted)",
+                borderColor: "var(--border-color)",
+              }}
+            >
+              <p className="theme-muted-text text-xs font-semibold uppercase tracking-[0.2em]">
+                Active Theme
+              </p>
+              <p
+                className="theme-text mt-2 text-2xl font-semibold"
+                style={{ fontFamily: currentTheme.fontFamily }}
+              >
+                {currentTheme.label}
+              </p>
+              <p className="theme-muted-text mt-2 text-sm">
+                {user
+                  ? "Live account sync is enabled for this preference."
+                  : "Guest theme is stored locally on this device."}
+              </p>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       <Card
         padding="lg"
@@ -123,16 +345,14 @@ const Settings = () => {
             <DollarSign size={24} className="text-green-600 dark:text-green-400" />
           </div>
           <div className="flex-1">
-            <h2 className="mb-4 text-xl font-semibold text-gray-900 dark:text-white">
-              Monthly Income
-            </h2>
-            <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+            <h2 className="mb-4 text-xl font-semibold">Monthly Income</h2>
+            <p className="mb-4 text-sm">
               Set your monthly income. This helps FinSight calculate your leftover
               money and investment recommendations.
             </p>
             <div className="space-y-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label className="theme-muted-text mb-2 block text-sm font-medium">
                   Total Monthly Income (Rs)
                 </label>
                 <div className="flex gap-2">
@@ -149,7 +369,7 @@ const Settings = () => {
                     Save
                   </Button>
                 </div>
-                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                <p className="theme-muted-text mt-2 text-xs">
                   Your current monthly income: Rs {monthlyIncome.toLocaleString()}
                 </p>
               </div>
@@ -167,10 +387,8 @@ const Settings = () => {
             <Lightbulb size={24} className="text-blue-600 dark:text-blue-400" />
           </div>
           <div className="flex-1">
-            <h2 className="mb-4 text-xl font-semibold text-gray-900 dark:text-white">
-              Investment Risk Profile
-            </h2>
-            <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+            <h2 className="mb-4 text-xl font-semibold">Investment Risk Profile</h2>
+            <p className="mb-4 text-sm">
               Choose your investment risk tolerance. This determines which investment
               recommendations you receive.
             </p>
@@ -196,8 +414,14 @@ const Settings = () => {
                   key={option.value}
                   className="flex cursor-pointer items-center rounded-lg border-2 p-3 transition-all"
                   style={{
-                    borderColor: riskTolerance === option.value ? "#3b82f6" : "#e5e7eb",
-                    backgroundColor: riskTolerance === option.value ? "#eff6ff" : "transparent",
+                    borderColor:
+                      riskTolerance === option.value
+                        ? "var(--accent-color)"
+                        : "var(--border-color)",
+                    backgroundColor:
+                      riskTolerance === option.value
+                        ? "var(--accent-soft-color)"
+                        : "transparent",
                   }}
                 >
                   <input
@@ -209,10 +433,8 @@ const Settings = () => {
                     className="h-4 w-4"
                   />
                   <div className="ml-3 flex-1">
-                    <p className="font-medium text-gray-900 dark:text-white">{option.label}</p>
-                    <p className="text-xs text-gray-600 dark:text-gray-400">
-                      {option.description}
-                    </p>
+                    <p className="font-medium">{option.label}</p>
+                    <p className="theme-muted-text text-xs">{option.description}</p>
                   </div>
                 </label>
               ))}
@@ -233,21 +455,13 @@ const Settings = () => {
             <Download size={24} className="text-amber-600 dark:text-amber-400" />
           </div>
           <div className="flex-1">
-            <h2 className="mb-2 text-xl font-semibold text-gray-900 dark:text-white">
-              Guest Data Backup
-            </h2>
-            <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
-              Export guest-mode expenses before switching accounts or for your own backup.
+            <h2 className="mb-2 text-xl font-semibold">Guest Data & Theme Backup</h2>
+            <p className="theme-muted-text mb-4 text-sm">
+              Export guest-mode expenses and your current theme choice in one backup.
             </p>
-            <p className="mb-4 text-sm text-gray-700 dark:text-gray-300">
-              Guest expenses available: {guestExpenseCount}
-            </p>
+            <p className="mb-4 text-sm">Guest expenses available: {guestExpenseCount}</p>
             <div className="flex flex-wrap gap-3">
-              <Button
-                variant="secondary"
-                onClick={() => handleExport("json")}
-                disabled={guestExpenseCount === 0}
-              >
+              <Button variant="secondary" onClick={() => handleExport("json")}>
                 Export JSON
               </Button>
               <Button
@@ -257,58 +471,69 @@ const Settings = () => {
               >
                 Export CSV
               </Button>
+              <Button
+                variant="secondary"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2"
+              >
+                <Upload size={16} />
+                Import Theme JSON
+              </Button>
             </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json"
+              className="hidden"
+              onChange={handleImportTheme}
+            />
           </div>
         </div>
       </Card>
 
-      <Card padding="lg" className="bg-linear-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20">
-        <h3 className="mb-3 font-semibold text-gray-900 dark:text-white">How Income is Used</h3>
+      <Card
+        padding="lg"
+        className="bg-linear-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20"
+      >
+        <h3 className="mb-3 text-xl font-semibold">How Income is Used</h3>
         <div className="grid gap-3">
-          <div className="flex items-center gap-3 p-2">
-            <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-white">Monthly Income</p>
-              <p className="text-xs text-gray-600 dark:text-gray-400">
-                Your total earnings per month
-              </p>
+          {[
+            {
+              title: "Monthly Income",
+              copy: "Your total earnings per month",
+            },
+            {
+              title: "Expenses Tracking",
+              copy: "Calculates what percentage of income you spend",
+            },
+            {
+              title: "AI Recommendations",
+              copy: "Suggests how to invest your leftover money",
+            },
+            {
+              title: "Savings Goal",
+              copy: "Helps track if you are meeting goals",
+            },
+          ].map((item) => (
+            <div key={item.title} className="flex items-center gap-3 p-2">
+              <div>
+                <p className="text-sm font-medium">{item.title}</p>
+                <p className="theme-muted-text text-xs">{item.copy}</p>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-3 p-2">
-            <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-white">Expenses Tracking</p>
-              <p className="text-xs text-gray-600 dark:text-gray-400">
-                Calculates what percentage of income you spend
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 p-2">
-            <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-white">AI Recommendations</p>
-              <p className="text-xs text-gray-600 dark:text-gray-400">
-                Suggests how to invest your leftover money
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 p-2">
-            <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-white">Savings Goal</p>
-              <p className="text-xs text-gray-600 dark:text-gray-400">
-                Helps track if you are meeting goals
-              </p>
-            </div>
-          </div>
+          ))}
         </div>
       </Card>
 
       <Card padding="lg">
-        <h3 className="mb-3 font-semibold text-gray-900 dark:text-white">Example Calculation</h3>
+        <h3 className="mb-3 text-xl font-semibold">Example Calculation</h3>
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span>Monthly Income:</span>
             <span className="font-semibold">Rs {monthlyIncome.toLocaleString()}</span>
           </div>
-          <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
-          <div className="flex justify-between text-gray-600 dark:text-gray-400">
+          <div className="theme-border my-2 border-t" />
+          <div className="theme-muted-text flex justify-between">
             <span>Total Expenses (example):</span>
             <span>Rs 15,000</span>
           </div>
@@ -316,10 +541,10 @@ const Settings = () => {
             <span>Leftover Money:</span>
             <span>Rs {(monthlyIncome - 15000).toLocaleString()}</span>
           </div>
-          <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
-          <p className="mt-3 text-xs text-gray-600 dark:text-gray-400">
-            Your leftover money will be allocated based on your{" "}
-            <strong>{riskTolerance}</strong> risk profile.
+          <div className="theme-border my-2 border-t" />
+          <p className="theme-muted-text mt-3 text-xs">
+            Your leftover money will be allocated based on your <strong>{riskTolerance}</strong>{" "}
+            risk profile.
           </p>
         </div>
       </Card>

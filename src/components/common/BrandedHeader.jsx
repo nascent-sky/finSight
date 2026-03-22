@@ -1,22 +1,37 @@
-import { ShieldCheck } from 'lucide-react'
+import { ShieldCheck } from "lucide-react"
 
 const BrandedHeader = () => {
   return (
     <div className="flex items-center gap-3">
-      {/* Logo Icon */}
       <div className="relative">
-        <div className="w-10 h-10 rounded-full bg-linear-to-br from-cyan-400 to-blue-600 flex items-center justify-center shadow-lg">
-          <ShieldCheck size={24} className="text-white" strokeWidth={1.5} />
+        <div
+          className="flex h-10 w-10 items-center justify-center rounded-full shadow-lg"
+          style={{
+            background: "linear-gradient(135deg, var(--accent-color), var(--accent-strong-color))",
+            color: "var(--accent-contrast-color)",
+          }}
+        >
+          <ShieldCheck size={24} strokeWidth={1.5} />
         </div>
-        <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
+        <div
+          className="absolute -right-1 -top-1 h-3 w-3 animate-pulse rounded-full"
+          style={{ backgroundColor: "var(--accent-soft-color)" }}
+        />
       </div>
 
-      {/* Brand Name */}
       <div className="flex flex-col">
-        <span className="text-xl font-black bg-linear-to-r from-cyan-500 via-blue-600 to-indigo-600 bg-clip-text text-transparent leading-none">
+        <span
+          className="text-xl font-black leading-none text-transparent"
+          style={{
+            backgroundImage:
+              "linear-gradient(135deg, var(--accent-color), var(--accent-strong-color))",
+            WebkitBackgroundClip: "text",
+            backgroundClip: "text",
+          }}
+        >
           FinSight
         </span>
-        <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
+        <span className="theme-muted-text text-xs font-medium">
           Smart Financial Insights
         </span>
       </div>

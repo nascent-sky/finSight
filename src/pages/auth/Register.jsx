@@ -5,7 +5,7 @@ import Card from "../../components/ui/Card"
 
 const Register = () => {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 dark:bg-gray-950">
+    <div className="theme-shell flex min-h-screen items-center justify-center px-4">
       
       <Card className="w-full max-w-md">
         {/* Title */}
@@ -55,7 +55,7 @@ const Register = () => {
           Already have an account?{" "}
           <Link
             to="/login"
-            className="font-medium text-indigo-600 hover:underline"
+            className="theme-link font-medium hover:underline"
           >
             Sign in
           </Link>

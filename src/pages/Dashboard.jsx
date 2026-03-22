@@ -85,7 +85,7 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl bg-linear-to-r from-indigo-600 to-purple-600 p-6 text-white shadow-lg">
+      <div className="theme-hero rounded-2xl p-6 shadow-lg">
         <h1 className="text-3xl font-bold">Welcome Back!</h1>
         <p className="mt-2 opacity-90">
           You have Rs {leftoverMoney.toLocaleString()} leftover this month. Let AI help

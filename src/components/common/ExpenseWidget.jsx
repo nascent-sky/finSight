@@ -76,7 +76,7 @@ const ExpenseWidget = () => {
           <button
             onClick={handleQuickAdd}
             disabled={isProcessing}
-            className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-indigo-600 px-2 py-2 text-sm text-white"
+            className="theme-button-primary flex flex-1 items-center justify-center gap-1 rounded-lg px-2 py-2 text-sm"
           >
             <Plus size={16} />
             Add
@@ -84,8 +84,10 @@ const ExpenseWidget = () => {
 
           <button
             onClick={handleMicClick}
-            className={`rounded-lg p-2 text-gray-700 hover:bg-gray-200 ${
-              isListening ? "bg-red-500 text-white" : "bg-gray-100"
+            className={`rounded-lg p-2 ${
+              isListening
+                ? "bg-red-500 text-white"
+                : "theme-panel theme-muted-text hover:bg-gray-200"
             }`}
             title={isListening ? "Stop listening" : "Start voice input"}
           >

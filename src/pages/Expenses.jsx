@@ -123,7 +123,7 @@ const Expenses = () => {
     <div className="space-y-6">
       <ToastContainer />
 
-      <div className="rounded-2xl bg-linear-to-r from-emerald-600 to-teal-600 p-6 text-white shadow-lg">
+      <div className="theme-hero rounded-2xl p-6 shadow-lg">
         <h1 className="text-3xl font-bold">Expenses</h1>
         <p className="mt-2 opacity-90">
           View, manage, and optimize your spending patterns

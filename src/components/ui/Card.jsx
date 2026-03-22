@@ -1,10 +1,6 @@
 import clsx from "clsx"
 
-const Card = ({
-  children,
-  className,
-  padding = "md",
-}) => {
+const Card = ({ children, className, padding = "md" }) => {
   const paddingClass = {
     sm: "p-3",
     md: "p-4",
@@ -15,9 +11,9 @@ const Card = ({
   return (
     <div
       className={clsx(
-        "rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-md overflow-hidden",
+        "theme-card overflow-hidden rounded-xl border",
         paddingClass,
-        className
+        className,
       )}
     >
       {children}

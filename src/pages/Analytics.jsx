@@ -96,7 +96,7 @@ const Analytics = () => {
 
   return (
     <div className="space-y-8">
-      <div className="rounded-2xl bg-linear-to-r from-blue-600 to-indigo-600 p-6 text-white shadow-lg">
+      <div className="theme-hero rounded-2xl p-6 shadow-lg">
         <div className="flex items-center gap-3">
           <div className="rounded-full bg-white/20 p-2">
             <BarChart3 size={28} />

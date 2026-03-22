@@ -75,7 +75,7 @@ const Categories = () => {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl bg-linear-to-r from-pink-600 to-rose-600 p-6 text-white shadow-lg">
+      <div className="theme-hero rounded-2xl p-6 shadow-lg">
         <h1 className="text-3xl font-bold">Expense Categories</h1>
         <p className="mt-2 text-sm opacity-90">Track your spending across categories</p>
       </div>

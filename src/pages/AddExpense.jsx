@@ -60,7 +60,7 @@ const AddExpense = () => {
   }
 
   return (
-    <div className="relative space-y-6 pb-24">
+    <div className="theme-shell relative space-y-6 pb-24">
       <div>
         <h1 className="text-xl font-semibold">Add Expense</h1>
         <p className="text-sm text-gray-500">Record your spending easily</p>

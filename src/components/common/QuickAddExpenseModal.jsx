@@ -68,7 +68,7 @@ const QuickAddExpenseModal = ({ isOpen, onClose, onExpenseAdded }) => {
     <Modal isOpen={isOpen} onClose={onClose} title="Quick Add Expense">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label className="theme-muted-text mb-1 block text-sm font-medium">
             Amount
           </label>
           <Input
@@ -82,13 +82,13 @@ const QuickAddExpenseModal = ({ isOpen, onClose, onExpenseAdded }) => {
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label className="theme-muted-text mb-1 block text-sm font-medium">
             Category
           </label>
           <select
             value={category}
             onChange={(event) => setCategory(event.target.value)}
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            className="theme-input w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
           >
             {categories.map((categoryOption) => (
               <option key={categoryOption} value={categoryOption}>
@@ -99,7 +99,7 @@ const QuickAddExpenseModal = ({ isOpen, onClose, onExpenseAdded }) => {
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label className="theme-muted-text mb-1 block text-sm font-medium">
             Note (Optional)
           </label>
           <Input

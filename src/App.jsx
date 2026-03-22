@@ -1,4 +1,3 @@
-import { Outlet } from "react-router-dom"
 import { BrowserRouter, Routes, Route } from "react-router-dom"
 import { useState, useEffect } from "react"
 
@@ -29,7 +28,7 @@ const AuthLayout = ({ children, isSidebarOpen, setIsSidebarOpen, onAddClick, isQ
         onAddClick={onAddClick}
       />
       <main className="flex-1 p-4 pb-20 md:pb-4 overflow-y-auto">
-        <Outlet />
+        {children}
       </main>
       <BottomNav onAddClick={onAddClick} />
     </div>
@@ -62,7 +61,7 @@ function App() {
         <Route path="/register" element={<Register />} />
 
         {/* App Routes (WITH layout) */}
-        {/* <Route path="/" element={
+        <Route path="/" element={
           <AuthLayout
             isSidebarOpen={isSidebarOpen}
             setIsSidebarOpen={setIsSidebarOpen}
@@ -133,27 +132,7 @@ function App() {
           >
             <Settings />
           </AuthLayout>
-        } /> */}
-        <Route
-          path="/"
-          element={
-            <AuthLayout
-              isSidebarOpen={isSidebarOpen}
-              setIsSidebarOpen={setIsSidebarOpen}
-              onAddClick={handleQuickAddExpense}
-              isQuickAddOpen={isQuickAddOpen}
-              setIsQuickAddOpen={setIsQuickAddOpen}
-              onExpenseAdded={handleExpenseAdded}
-            />
-          }
-        >
-          <Route index element={<Dashboard />} />
-          <Route path="expenses" element={<Expenses />} />
-          <Route path="analytics" element={<Analytics />} />
-          <Route path="categories" element={<Categories />} />
-          <Route path="add-expense" element={<AddExpense />} />
-          <Route path="settings" element={<Settings />} />
-        </Route>
+        } />
       </Routes>
     </BrowserRouter>
   )

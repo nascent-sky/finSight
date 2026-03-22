@@ -1,66 +1,64 @@
-import { useState } from 'react'
-import Modal from '../ui/Modal'
-import Button from '../ui/Button'
-import Input from '../ui/Input'
-import expenseService from '../../services/expenseService'
-import { showToast } from '../../utils/toastStore'
+import { useState } from "react"
+
+import Modal from "../ui/Modal"
+import Button from "../ui/Button"
+import Input from "../ui/Input"
+import { showToast } from "../../utils/toastStore"
+import { addExpense } from "../../services/dataService"
 
 const QuickAddExpenseModal = ({ isOpen, onClose, onExpenseAdded }) => {
-  const [amount, setAmount] = useState('')
-  const [category, setCategory] = useState('Food & Dining')
-  const [note, setNote] = useState('')
+  const [amount, setAmount] = useState("")
+  const [category, setCategory] = useState("Food & Dining")
+  const [note, setNote] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const categories = [
-    'Food & Dining',
-    'Entertainment',
-    'Shopping',
-    'Utilities',
-    'Transport',
-    'Subscription',
-    'Healthcare',
-    'Other',
+    "Food & Dining",
+    "Entertainment",
+    "Shopping",
+    "Utilities",
+    "Transport",
+    "Subscription",
+    "Healthcare",
+    "Other",
   ]
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    
-    const parsedAmount = parseFloat(amount.replace(/[^0-9.]/g, ''))
-    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
-      showToast('Please enter a valid amount', 'error')
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+
+    const parsedAmount = parseFloat(amount.replace(/[^0-9.]/g, ""))
+    if (!amount || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
+      showToast("Please enter a valid amount", "error")
       return
     }
 
     setIsSubmitting(true)
-    
+
     try {
-      // Ensure addExpense returns the new object
-      const newExpense = expenseService.addExpense({
-        id: Date.now(), // unique id
+      const newExpense = await addExpense({
         amount: parsedAmount,
         category,
-        note: note || 'Manual entry',
-        date: new Date().toISOString().split('T')[0],
+        note: note || "Manual entry",
+        date: new Date().toISOString().split("T")[0],
       })
 
       if (!newExpense) {
-        throw new Error('Expense creation failed')
+        throw new Error("Expense creation failed")
       }
 
-      showToast(`✓ Expense saved: ₹${parsedAmount}`, 'success', 2500)
-      
-      if (onExpenseAdded) {
-        onExpenseAdded(newExpense) // safely pass object
+      showToast(`Expense saved: Rs ${parsedAmount}`, "success", 2500)
+
+      if (typeof onExpenseAdded === "function") {
+        onExpenseAdded(newExpense)
       }
 
-      // Reset form
-      setAmount('')
-      setCategory('Food & Dining')
-      setNote('')
+      setAmount("")
+      setCategory("Food & Dining")
+      setNote("")
       onClose()
-    } catch (err) {
-      console.error(err)
-      showToast('Failed to save expense', 'error')
+    } catch (error) {
+      console.error(error)
+      showToast("Failed to save expense", "error")
     } finally {
       setIsSubmitting(false)
     }
@@ -70,45 +68,45 @@ const QuickAddExpenseModal = ({ isOpen, onClose, onExpenseAdded }) => {
     <Modal isOpen={isOpen} onClose={onClose} title="Quick Add Expense">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
             Amount
           </label>
           <Input
             type="number"
             placeholder="Enter amount"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(event) => setAmount(event.target.value)}
             autoFocus
             step="0.01"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
             Category
           </label>
           <select
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
+            onChange={(event) => setCategory(event.target.value)}
             className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
           >
-            {categories.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
+            {categories.map((categoryOption) => (
+              <option key={categoryOption} value={categoryOption}>
+                {categoryOption}
               </option>
             ))}
           </select>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
             Note (Optional)
           </label>
           <Input
             type="text"
             placeholder="What did you spend on?"
             value={note}
-            onChange={(e) => setNote(e.target.value)}
+            onChange={(event) => setNote(event.target.value)}
           />
         </div>
 
@@ -121,12 +119,8 @@ const QuickAddExpenseModal = ({ isOpen, onClose, onExpenseAdded }) => {
           >
             Cancel
           </Button>
-          <Button
-            type="submit"
-            className="flex-1"
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? 'Saving...' : 'Save Expense'}
+          <Button type="submit" className="flex-1" disabled={isSubmitting}>
+            {isSubmitting ? "Saving..." : "Save Expense"}
           </Button>
         </div>
       </form>

@@ -1,16 +1,14 @@
-import { auth } from "./firebase"
+import { useEffect, useState } from "react"
+import { BrowserRouter, Route, Routes } from "react-router-dom"
 import { onAuthStateChanged } from "firebase/auth"
-
-import { BrowserRouter, Routes, Route } from "react-router-dom"
-import { useState, useEffect } from "react"
 
 import Sidebar from "./components/layout/Sidebar"
 import Header from "./components/layout/Header"
 import BottomNav from "./components/layout/BottomNav"
 import QuickAddExpenseModal from "./components/common/QuickAddExpenseModal"
 import ExpenseWidget from "./components/common/ExpenseWidget"
+import { auth } from "./firebase"
 
-// Pages
 import Login from "./pages/auth/Login"
 import Register from "./pages/auth/Register"
 import Dashboard from "./pages/Dashboard"
@@ -20,12 +18,19 @@ import Categories from "./pages/Categories"
 import AddExpense from "./pages/AddExpense"
 import Settings from "./pages/Settings"
 
-// Layout wrapper for authenticated pages
-const AuthLayout = ({ children, user, isSidebarOpen, setIsSidebarOpen, onAddClick, isQuickAddOpen, setIsQuickAddOpen, onExpenseAdded }) => (
+const AuthLayout = ({
+  children,
+  user,
+  isSidebarOpen,
+  setIsSidebarOpen,
+  onAddClick,
+  isQuickAddOpen,
+  setIsQuickAddOpen,
+}) => (
   <div className="flex min-h-screen bg-gray-50 dark:bg-gray-950">
-    <Sidebar 
-      isOpen={isSidebarOpen} 
-      onClose={() => setIsSidebarOpen(false)} 
+    <Sidebar
+      isOpen={isSidebarOpen}
+      onClose={() => setIsSidebarOpen(false)}
       user={user}
     />
     <div className="flex flex-1 flex-col md:ml-64">
@@ -34,7 +39,7 @@ const AuthLayout = ({ children, user, isSidebarOpen, setIsSidebarOpen, onAddClic
         onMenuClick={() => setIsSidebarOpen(true)}
         onAddClick={onAddClick}
       />
-      <main className="flex-1 p-4 pb-20 md:pb-4 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto p-4 pb-20 md:pb-4">
         {children}
       </main>
       <BottomNav onAddClick={onAddClick} />
@@ -43,7 +48,6 @@ const AuthLayout = ({ children, user, isSidebarOpen, setIsSidebarOpen, onAddClic
     <QuickAddExpenseModal
       isOpen={isQuickAddOpen}
       onClose={() => setIsQuickAddOpen(false)}
-      onExpenseAdded={onExpenseAdded}
     />
   </div>
 )
@@ -56,7 +60,6 @@ function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser)
-      console.log("Logged in user:", currentUser)
     })
 
     return () => unsubscribe()
@@ -66,96 +69,102 @@ function App() {
     setIsQuickAddOpen(true)
   }
 
-  const handleExpenseAdded = (expense) => {
-    window.dispatchEvent(new CustomEvent('expenseAdded', { detail: { expense } }))
-  }
-
   return (
     <BrowserRouter>
       <Routes>
-        {/* Auth Routes (NO layout) */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
 
-        {/* App Routes (WITH layout) */}
-        <Route path="/" element={
-          <AuthLayout
-            user={user}
-            isSidebarOpen={isSidebarOpen}
-            setIsSidebarOpen={setIsSidebarOpen}
-            onAddClick={handleQuickAddExpense}
-            isQuickAddOpen={isQuickAddOpen}
-            setIsQuickAddOpen={setIsQuickAddOpen}
-            onExpenseAdded={handleExpenseAdded}
-          >
-            <Dashboard />
-          </AuthLayout>
-        } />
-        <Route path="/expenses" element={
-          <AuthLayout
-            user={user}
-            isSidebarOpen={isSidebarOpen}
-            setIsSidebarOpen={setIsSidebarOpen}
-            onAddClick={handleQuickAddExpense}
-            isQuickAddOpen={isQuickAddOpen}
-            setIsQuickAddOpen={setIsQuickAddOpen}
-            onExpenseAdded={handleExpenseAdded}
-          >
-            <Expenses />
-          </AuthLayout>
-        } />
-        <Route path="/analytics" element={
-          <AuthLayout
-            user={user}
-            isSidebarOpen={isSidebarOpen}
-            setIsSidebarOpen={setIsSidebarOpen}
-            onAddClick={handleQuickAddExpense}
-            isQuickAddOpen={isQuickAddOpen}
-            setIsQuickAddOpen={setIsQuickAddOpen}
-            onExpenseAdded={handleExpenseAdded}
-          >
-            <Analytics />
-          </AuthLayout>
-        } />
-        <Route path="/categories" element={
-          <AuthLayout
-            user={user}
-            isSidebarOpen={isSidebarOpen}
-            setIsSidebarOpen={setIsSidebarOpen}
-            onAddClick={handleQuickAddExpense}
-            isQuickAddOpen={isQuickAddOpen}
-            setIsQuickAddOpen={setIsQuickAddOpen}
-            onExpenseAdded={handleExpenseAdded}
-          >
-            <Categories />
-          </AuthLayout>
-        } />
-        <Route path="/add-expense" element={
-          <AuthLayout
-            user={user}
-            isSidebarOpen={isSidebarOpen}
-            setIsSidebarOpen={setIsSidebarOpen}
-            onAddClick={handleQuickAddExpense}
-            isQuickAddOpen={isQuickAddOpen}
-            setIsQuickAddOpen={setIsQuickAddOpen}
-            onExpenseAdded={handleExpenseAdded}
-          >
-            <AddExpense />
-          </AuthLayout>
-        } />
-        <Route path="/settings" element={
-          <AuthLayout
-            user={user}
-            isSidebarOpen={isSidebarOpen}
-            setIsSidebarOpen={setIsSidebarOpen}
-            onAddClick={handleQuickAddExpense}
-            isQuickAddOpen={isQuickAddOpen}
-            setIsQuickAddOpen={setIsQuickAddOpen}
-            onExpenseAdded={handleExpenseAdded}
-          >
-            <Settings />
-          </AuthLayout>
-        } />
+        <Route
+          path="/"
+          element={
+            <AuthLayout
+              user={user}
+              isSidebarOpen={isSidebarOpen}
+              setIsSidebarOpen={setIsSidebarOpen}
+              onAddClick={handleQuickAddExpense}
+              isQuickAddOpen={isQuickAddOpen}
+              setIsQuickAddOpen={setIsQuickAddOpen}
+            >
+              <Dashboard />
+            </AuthLayout>
+          }
+        />
+        <Route
+          path="/expenses"
+          element={
+            <AuthLayout
+              user={user}
+              isSidebarOpen={isSidebarOpen}
+              setIsSidebarOpen={setIsSidebarOpen}
+              onAddClick={handleQuickAddExpense}
+              isQuickAddOpen={isQuickAddOpen}
+              setIsQuickAddOpen={setIsQuickAddOpen}
+            >
+              <Expenses />
+            </AuthLayout>
+          }
+        />
+        <Route
+          path="/analytics"
+          element={
+            <AuthLayout
+              user={user}
+              isSidebarOpen={isSidebarOpen}
+              setIsSidebarOpen={setIsSidebarOpen}
+              onAddClick={handleQuickAddExpense}
+              isQuickAddOpen={isQuickAddOpen}
+              setIsQuickAddOpen={setIsQuickAddOpen}
+            >
+              <Analytics />
+            </AuthLayout>
+          }
+        />
+        <Route
+          path="/categories"
+          element={
+            <AuthLayout
+              user={user}
+              isSidebarOpen={isSidebarOpen}
+              setIsSidebarOpen={setIsSidebarOpen}
+              onAddClick={handleQuickAddExpense}
+              isQuickAddOpen={isQuickAddOpen}
+              setIsQuickAddOpen={setIsQuickAddOpen}
+            >
+              <Categories />
+            </AuthLayout>
+          }
+        />
+        <Route
+          path="/add-expense"
+          element={
+            <AuthLayout
+              user={user}
+              isSidebarOpen={isSidebarOpen}
+              setIsSidebarOpen={setIsSidebarOpen}
+              onAddClick={handleQuickAddExpense}
+              isQuickAddOpen={isQuickAddOpen}
+              setIsQuickAddOpen={setIsQuickAddOpen}
+            >
+              <AddExpense />
+            </AuthLayout>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <AuthLayout
+              user={user}
+              isSidebarOpen={isSidebarOpen}
+              setIsSidebarOpen={setIsSidebarOpen}
+              onAddClick={handleQuickAddExpense}
+              isQuickAddOpen={isQuickAddOpen}
+              setIsQuickAddOpen={setIsQuickAddOpen}
+            >
+              <Settings />
+            </AuthLayout>
+          }
+        />
       </Routes>
     </BrowserRouter>
   )

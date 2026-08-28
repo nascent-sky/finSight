@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.finsight.app",
+      "sha256_cert_fingerprints": [
+        "8A:2B:9F:C2:CD:F7:46:86:0F:9D:A5:56:2E:9C:0E:13:13:33:08:70:3C:C0:FB:AB:BE:B2:83:B8:41:3C:A9:6E"
+      ]
+    }
+  }
+]

@@ -44,41 +44,45 @@ export const themes = {
     },
   },
   elegant: {
-    id: "elegant",
-    label: "Elegant Reserve",
-    description: "Warm ivory, slate depth, and a refined editorial serif.",
-    fontFamily: '"Merriweather", Georgia, serif',
-    colors: {
-      light: {
-        background: "#fbf7f1",
-        surface: "#fffdf9",
-        surfaceMuted: "#f2eadb",
-        text: "#2c241d",
-        muted: "#7d6f61",
-        accent: "#9a6c2f",
-        accentStrong: "#7a5320",
-        accentSoft: "#f6e7c9",
-        accentContrast: "#fffaf2",
-        border: "#e4d4bc",
-        overlay: "rgba(31, 24, 19, 0.5)",
-        shadow: "0 24px 60px rgba(122, 83, 32, 0.12)",
-      },
-      dark: {
-        background: "#16110c",
-        surface: "#1f1913",
-        surfaceMuted: "#2b241d",
-        text: "#f9f1e6",
-        muted: "#c0ab93",
-        accent: "#d6a55c",
-        accentStrong: "#b8853e",
-        accentSoft: "#3a2a16",
-        accentContrast: "#1f1305",
-        border: "#4a3a2a",
-        overlay: "rgba(6, 4, 3, 0.72)",
-        shadow: "0 24px 60px rgba(8, 6, 4, 0.42)",
-      },
+  id: "elegant",
+  label: "Elegant Reserve",
+  description: "Warm wheat tones with muted brick accents for a refined financial editorial feel.",
+  fontFamily: '"Merriweather", Georgia, serif',
+  colors: {
+    light: {
+      background: "#f7f1e8",        // wheat paper tone
+      surface: "#fffdf9",
+      surfaceMuted: "#efe6d8",
+      text: "#2a2118",
+      muted: "#7a6a58",
+
+      accent: "#a14b3b",            // muted brick red
+      accentStrong: "#7f3a2e",
+      accentSoft: "#f3ded9",
+      accentContrast: "#fff8f6",
+
+      border: "#e2d6c6",
+      overlay: "rgba(36, 26, 20, 0.5)",
+      shadow: "0 24px 60px rgba(161, 75, 59, 0.14)",
+    },
+    dark: {
+      background: "#14110f",
+      surface: "#1c1815",
+      surfaceMuted: "#26211d",
+      text: "#f5eee6",
+      muted: "#b7a79a",
+
+      accent: "#d27c6c",            // softened warm red
+      accentStrong: "#b65f50",
+      accentSoft: "#3a2a25",
+      accentContrast: "#1a120f",
+
+      border: "#3a312b",
+      overlay: "rgba(10, 7, 6, 0.72)",
+      shadow: "0 24px 60px rgba(0, 0, 0, 0.45)",
     },
   },
+},
   modern: {
     id: "modern",
     label: "Modern Current",

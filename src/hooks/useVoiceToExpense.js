@@ -89,6 +89,7 @@ export function useVoiceToExpense(
   const [error, setError] = useState(null)
   const [parsedExpense, setParsedExpense] = useState(null)
   const recognitionRef = useRef(null)
+  const externalTranscriptRef = useRef(null)
 
   // Initialize speech recognition on first use
   const initializeSpeechRecognition = useCallback(() => {
@@ -197,28 +198,34 @@ export function useVoiceToExpense(
     setParsedExpense(null)
   }, [])
 
-  // Handle transcript supplied by the Android widget
   useEffect(() => {
     if (!externalTranscript) return
 
     const text = externalTranscript.trim()
     if (!text) return
 
+    // Prevent the same external transcript from being processed repeatedly.
+    if (externalTranscriptRef.current === text) {
+      return
+    }
+
+    externalTranscriptRef.current = text
+
     setTranscript(text)
+    setIsListening(false)
+    setError(null)
 
     const expense = parseExpenseFromTranscript(text)
     setParsedExpense(expense)
-    setIsListening(false)
-    setError(null)
 
     if (onExpenseRecognized) {
       try {
         onExpenseRecognized(expense)
       } catch (e) {
-        console.error(e)
+        console.error('Failed to process external transcript', e)
       }
     }
-  }, [externalTranscript, onExpenseRecognized])
+  }, [externalTranscript])
 
   return {
     // State

@@ -134,8 +134,11 @@ const Expenses = () => {
         </p>
       </div>
 
-      <VoiceRecorder onExpenseDetected={handleVoiceExpenseDetected} externalTranscript={androidVoiceTranscript} />
-
+      <VoiceRecorder
+        onExpenseDetected={handleVoiceExpenseDetected}
+        externalTranscript={androidVoiceTranscript}
+        onExternalTranscriptConsumed={() => setAndroidVoiceTranscript(null)}
+      />
       <SmartExpenseAnalyzer expenses={categoryExpenses} />
 
       <div className="space-y-4">

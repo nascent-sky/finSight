@@ -9,7 +9,8 @@ export default function VoiceRecorder({
   onExpenseDetected,
   autoSave = false,
   externalTranscript = null,
-  }) {
+  onExternalTranscriptConsumed = null,
+}) {
   const [showPreview, setShowPreview] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -79,6 +80,11 @@ export default function VoiceRecorder({
         showToast(`✓ Expense saved: ₹${parsedExpense.amount}`, 'success', 3000)
         resetTranscript()
         setShowPreview(false)
+
+        if (onExternalTranscriptConsumed) {
+          onExternalTranscriptConsumed()
+        }
+
         setIsSubmitting(false)
       } catch {
         showToast('Failed to save expense', 'error', 3000)
@@ -212,6 +218,10 @@ export default function VoiceRecorder({
             onClick={() => {
               resetTranscript()
               setShowPreview(false)
+
+              if (onExternalTranscriptConsumed) {
+                onExternalTranscriptConsumed()
+              }
             }}
             className="flex-1 bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 flex items-center justify-center gap-2"
             disabled={isSubmitting}

@@ -29,7 +29,7 @@ const MERCHANT_PATTERNS = [
  * Example: "Spent 50 rupees at Starbucks for lunch"
  * Returns: { amount: 50, merchant: "Starbucks", category: "Food & Dining", note: "lunch" }
  */
-function parseExpenseFromTranscript(transcript) {
+export function parseExpenseFromTranscript(transcript) {
   const text = transcript.toLowerCase().trim()
   
   let amount = null

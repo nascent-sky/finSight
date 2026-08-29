@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Plus, Search, Trash2 } from "lucide-react"
 
 import Card from "../components/ui/Card"
@@ -6,6 +6,7 @@ import Input from "../components/ui/Input"
 import Button from "../components/ui/Button"
 import SmartExpenseAnalyzer from "../components/common/SmartExpenseAnalyzer"
 import VoiceRecorder from "../components/common/VoiceRecorder"
+import { parseExpenseFromTranscript } from "../hooks/useVoiceToExpense"
 import { ToastContainer } from "../components/common/Toast"
 import { useExpenses } from "../context/ExpensesContext"
 
@@ -68,6 +69,36 @@ const Expenses = () => {
       alert("Could not save this expense right now.")
     }
   }
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const voiceTranscript = params.get("voice")
+
+    if (!voiceTranscript) return
+
+    const decodedTranscript = voiceTranscript.trim()
+
+    if (!decodedTranscript) return
+
+    // Prevent the same Android voice command from being processed
+    // repeatedly if the page is refreshed.
+    const processedKey = `finsight-voice-${decodedTranscript}`
+
+    if (sessionStorage.getItem(processedKey)) {
+      return
+    }
+
+    sessionStorage.setItem(processedKey, "true")
+
+    const parsedExpense = parseExpenseFromTranscript(decodedTranscript)
+
+    handleVoiceExpenseDetected(parsedExpense)
+
+    // Remove the voice parameter from the visible URL.
+    const cleanUrl = `${window.location.pathname}${window.location.hash}`
+
+    window.history.replaceState({}, document.title, cleanUrl)
+  }, [])
 
   const handleQuickAdd = async () => {
     const amountRaw = window.prompt("Enter amount (numbers only)")

@@ -6,7 +6,6 @@ import Input from "../components/ui/Input"
 import Button from "../components/ui/Button"
 import SmartExpenseAnalyzer from "../components/common/SmartExpenseAnalyzer"
 import VoiceRecorder from "../components/common/VoiceRecorder"
-import { parseExpenseFromTranscript } from "../hooks/useVoiceToExpense"
 import { ToastContainer } from "../components/common/Toast"
 import { useExpenses } from "../context/ExpensesContext"
 
@@ -14,7 +13,7 @@ const Expenses = () => {
   const { addExpense, deleteExpense, expenses, hasPendingWrites, isReady } = useExpenses()
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("All")
-  const [voiceExpensePreview, setVoiceExpensePreview] = useState(null)
+  const [androidVoiceTranscript, setAndroidVoiceTranscript] = useState(null)
 
   const categories = [
     "All",
@@ -81,13 +80,9 @@ const Expenses = () => {
 
     if (!decodedTranscript) return
 
-    const parsedExpense = parseExpenseFromTranscript(decodedTranscript)
+    setAndroidVoiceTranscript(decodedTranscript)
 
-    setVoiceExpensePreview({
-      ...parsedExpense,
-      originalTranscript: decodedTranscript
-    })
-
+    // Remove the voice parameter after reading it.
     const cleanUrl = `${window.location.pathname}${window.location.hash}`
 
     window.history.replaceState({}, document.title, cleanUrl)
@@ -139,83 +134,7 @@ const Expenses = () => {
         </p>
       </div>
 
-      {voiceExpensePreview && (
-        <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 p-5">
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Review Voice Expense
-            </h3>
-
-            <p className="mt-1 text-sm text-gray-600">
-              {voiceExpensePreview.originalTranscript}
-            </p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <p className="text-xs font-medium text-gray-500">
-                Amount
-              </p>
-              <p className="text-lg font-semibold text-gray-900">
-                ₹
-                {Number(
-                  voiceExpensePreview.amount || 0
-                ).toLocaleString("en-IN")}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs font-medium text-gray-500">
-                Category
-              </p>
-              <p className="text-lg font-semibold text-gray-900">
-                {voiceExpensePreview.category || "Other"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs font-medium text-gray-500">
-                Merchant
-              </p>
-              <p className="text-gray-900">
-                {voiceExpensePreview.merchant || "Not detected"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs font-medium text-gray-500">
-                Note
-              </p>
-              <p className="text-gray-900">
-                {voiceExpensePreview.note || "Not detected"}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 flex gap-3">
-            <button
-              type="button"
-              onClick={() => setVoiceExpensePreview(null)}
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700"
-            >
-              Cancel
-            </button>
-
-            <button
-              type="button"
-              onClick={async () => {
-                await handleVoiceExpenseDetected(voiceExpensePreview)
-                setVoiceExpensePreview(null)
-              }}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white"
-            >
-              Add Expense
-            </button>
-          </div>
-        </div>
-      )}
-
-      <VoiceRecorder onExpenseDetected={handleVoiceExpenseDetected} />
+      <VoiceRecorder onExpenseDetected={handleVoiceExpenseDetected} externalTranscript={androidVoiceTranscript} />
 
       <SmartExpenseAnalyzer expenses={categoryExpenses} />
 

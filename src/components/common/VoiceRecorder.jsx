@@ -5,7 +5,11 @@ import Button from '../ui/Button'
 import Card from '../ui/Card'
 import { showToast } from '../../utils/toastStore'
 
-export default function VoiceRecorder({ onExpenseDetected, autoSave = false }) {
+export default function VoiceRecorder({
+  onExpenseDetected,
+  autoSave = false,
+  externalTranscript = null,
+  }) {
   const [showPreview, setShowPreview] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -18,30 +22,39 @@ export default function VoiceRecorder({ onExpenseDetected, autoSave = false }) {
     stopListening,
     clearError,
     resetTranscript,
-  } = useVoiceToExpense((expense) => {
-    if (expense.amount > 0) {
-      setShowPreview(true)
-      showToast(`Detected: ₹${expense.amount} - ${expense.category}`, 'success', 4000)
-      // If autoSave is enabled and parent handler provided, save automatically.
-      if (autoSave && onExpenseDetected) {
-        try {
-          onExpenseDetected({
-            id: Date.now(),
-            amount: expense.amount,
-            category: expense.category,
-            note: expense.note || expense.merchant || 'Voice input',
-            date: new Date().toISOString().split('T')[0],
-            merchant: expense.merchant,
-          })
-          // reset transcript so repeated recordings work smoothly
-          resetTranscript()
-          setShowPreview(false)
-        } catch (e) {
-          console.error('Failed to auto-save voice expense', e)
+  } = useVoiceToExpense(
+    (expense) => {
+      if (expense.amount > 0) {
+        setShowPreview(true)
+        showToast(
+          `Detected: ₹${expense.amount} - ${expense.category}`,
+          'success',
+          4000
+        )
+
+        // If autoSave is enabled and parent handler provided, save automatically.
+        if (autoSave && onExpenseDetected) {
+          try {
+            onExpenseDetected({
+              id: Date.now(),
+              amount: expense.amount,
+              category: expense.category,
+              note: expense.note || expense.merchant || 'Voice input',
+              date: new Date().toISOString().split('T')[0],
+              merchant: expense.merchant,
+            })
+
+            // reset transcript so repeated recordings work smoothly
+            resetTranscript()
+            setShowPreview(false)
+          } catch (e) {
+            console.error('Failed to auto-save voice expense', e)
+          }
         }
       }
-    }
-  })
+    },
+    externalTranscript
+  )
 
   useEffect(() => {
     if (error) {

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 
 // Category keywords mapping
 const CATEGORY_KEYWORDS = {
@@ -80,7 +80,10 @@ export function parseExpenseFromTranscript(transcript) {
  * Custom hook for voice-to-expense conversion
  * Handles Web Speech API with fallback for browser compatibility
  */
-export function useVoiceToExpense(onExpenseRecognized) {
+export function useVoiceToExpense(
+  onExpenseRecognized,
+  externalTranscript = null
+) {
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [error, setError] = useState(null)
@@ -193,6 +196,29 @@ export function useVoiceToExpense(onExpenseRecognized) {
     setTranscript('')
     setParsedExpense(null)
   }, [])
+
+  // Handle transcript supplied by the Android widget
+  useEffect(() => {
+    if (!externalTranscript) return
+
+    const text = externalTranscript.trim()
+    if (!text) return
+
+    setTranscript(text)
+
+    const expense = parseExpenseFromTranscript(text)
+    setParsedExpense(expense)
+    setIsListening(false)
+    setError(null)
+
+    if (onExpenseRecognized) {
+      try {
+        onExpenseRecognized(expense)
+      } catch (e) {
+        console.error(e)
+      }
+    }
+  }, [externalTranscript, onExpenseRecognized])
 
   return {
     // State

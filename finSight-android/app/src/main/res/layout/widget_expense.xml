@@ -7,7 +7,7 @@
     android:orientation="vertical"
     android:padding="16dp"
     android:gravity="center"
-    android:background="#FFFFFF">
+    android:background="@drawable/widget_background">
 
     <TextView
         android:layout_width="wrap_content"
@@ -28,6 +28,6 @@
         android:textSize="16sp"
         android:textStyle="bold"
         android:textColor="#FFFFFF"
-        android:background="#4F46E5" />
+        android:background="@drawable/widget_button" />
 
 </LinearLayout>

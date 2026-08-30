@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Mic, Square, RefreshCw, CheckCircle } from 'lucide-react'
 import { useVoiceToExpense } from '../../hooks/useVoiceToExpense'
 import Button from '../ui/Button'
@@ -13,6 +13,7 @@ export default function VoiceRecorder({
 }) {
   const [showPreview, setShowPreview] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const handledExpenseRef = useRef(null)
 
   const {
     isListening,
@@ -23,45 +24,78 @@ export default function VoiceRecorder({
     stopListening,
     clearError,
     resetTranscript,
-  } = useVoiceToExpense(
-    (expense) => {
-      if (expense.amount > 0) {
-        setShowPreview(true)
-        showToast(
-          `Detected: ₹${expense.amount} - ${expense.category}`,
-          'success',
-          4000
-        )
-
-        // If autoSave is enabled and parent handler provided, save automatically.
-        if (autoSave && onExpenseDetected) {
-          try {
-            onExpenseDetected({
-              id: Date.now(),
-              amount: expense.amount,
-              category: expense.category,
-              note: expense.note || expense.merchant || 'Voice input',
-              date: new Date().toISOString().split('T')[0],
-              merchant: expense.merchant,
-            })
-
-            // reset transcript so repeated recordings work smoothly
-            resetTranscript()
-            setShowPreview(false)
-          } catch (e) {
-            console.error('Failed to auto-save voice expense', e)
-          }
-        }
-      }
-    },
-    externalTranscript
-  )
+  } = useVoiceToExpense(null, externalTranscript)
 
   useEffect(() => {
     if (error) {
       showToast(error, 'error', 5000)
     }
   }, [error])
+
+  useEffect(() => {
+    if (!parsedExpense || handledExpenseRef.current === parsedExpense) {
+      return undefined
+    }
+
+    handledExpenseRef.current = parsedExpense
+
+    if (parsedExpense.amount <= 0) {
+      return undefined
+    }
+
+    let isActive = true
+    const timeoutId = window.setTimeout(() => {
+      if (!isActive) return
+
+      setShowPreview(true)
+      showToast(
+        `Detected: ₹${parsedExpense.amount} - ${parsedExpense.category}`,
+        'success',
+        4000
+      )
+
+      if (!autoSave || !onExpenseDetected) {
+        return
+      }
+
+      const saveDetectedExpense = async () => {
+        try {
+          await onExpenseDetected({
+            id: Date.now(),
+            amount: parsedExpense.amount,
+            category: parsedExpense.category,
+            note: parsedExpense.note || parsedExpense.merchant || 'Voice input',
+            date: new Date().toISOString().split('T')[0],
+            merchant: parsedExpense.merchant,
+          })
+
+          if (!isActive) return
+
+          resetTranscript()
+          setShowPreview(false)
+
+          if (onExternalTranscriptConsumed) {
+            onExternalTranscriptConsumed()
+          }
+        } catch (error) {
+          console.error('Failed to auto-save voice expense', error)
+        }
+      }
+
+      void saveDetectedExpense()
+    }, 0)
+
+    return () => {
+      isActive = false
+      window.clearTimeout(timeoutId)
+    }
+  }, [
+    autoSave,
+    onExpenseDetected,
+    onExternalTranscriptConsumed,
+    parsedExpense,
+    resetTranscript,
+  ])
 
   const handleSubmit = () => {
     if (!parsedExpense || !onExpenseDetected) return

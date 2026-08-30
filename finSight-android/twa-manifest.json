@@ -16,11 +16,11 @@
   "iconUrl": "https://finsight-pwa.netlify.app/icon-512.png",
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
-    "path": "C:\\Users\\Niicheon\\Project\\finSight-android\\android.keystore",
+    "path": "C:\\Users\\Niicheon\\Project\\FinSight\\finSight-android\\android.keystore",
     "alias": "android"
   },
-  "appVersionName": "1",
-  "appVersionCode": 1,
+  "appVersionName": "2",
+  "appVersionCode": 2,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://finsight-pwa.netlify.app/manifest.json",
@@ -42,5 +42,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "1"
+  "appVersion": "2"
 }

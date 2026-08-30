@@ -24,7 +24,7 @@
 
     
         <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-        <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    
 
     
 
@@ -194,6 +194,7 @@
         
             <activity android:name="com.google.androidbrowserhelper.trusted.NotificationPermissionRequestActivity" />
 
+
         <receiver
             android:name=".ExpenseWidget"
             android:exported="true">
@@ -204,11 +205,8 @@
 
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/expense_widget_info" />
+                android:resource="@xml/widget_info" />
 
         </receiver>
-        <activity
-            android:name=".VoiceInputActivity"
-            android:exported="false" />
     </application>
 </manifest>

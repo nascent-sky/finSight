@@ -28,3 +28,35 @@ node_modules/
 dist/
 .env
 
+# =========================================================
+# Android / Android Studio
+# =========================================================
+
+# Android Studio project files
+.idea/
+*.iml
+
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Local machine configuration
+local.properties
+
+# Native build artifacts
+.cxx/
+.externalNativeBuild/
+
+# Android signing keys
+*.keystore
+*.jks
+
+# Generated APK / AAB files
+*.apk
+*.aab
+*.idsig
+
+# OS files
+.DS_Store
+Thumbs.db

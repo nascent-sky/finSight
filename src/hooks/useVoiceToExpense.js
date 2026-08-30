@@ -90,6 +90,32 @@ export function useVoiceToExpense(
   const [parsedExpense, setParsedExpense] = useState(null)
   const recognitionRef = useRef(null)
   const externalTranscriptRef = useRef(null)
+  const onExpenseRecognizedRef = useRef(onExpenseRecognized)
+
+  useEffect(() => {
+    onExpenseRecognizedRef.current = onExpenseRecognized
+  }, [onExpenseRecognized])
+
+  const notifyExpenseRecognized = useCallback((expense) => {
+    if (!onExpenseRecognizedRef.current) return
+
+    try {
+      onExpenseRecognizedRef.current(expense)
+    } catch (error) {
+      console.error(error)
+    }
+  }, [])
+
+  const applyRecognizedTranscript = useCallback((text) => {
+    const normalizedText = typeof text === 'string' ? text.trim() : ''
+    if (!normalizedText) return
+
+    setTranscript(normalizedText)
+
+    const expense = parseExpenseFromTranscript(normalizedText)
+    setParsedExpense(expense)
+    notifyExpenseRecognized(expense)
+  }, [notifyExpenseRecognized])
 
   // Initialize speech recognition on first use
   const initializeSpeechRecognition = useCallback(() => {
@@ -107,31 +133,30 @@ export function useVoiceToExpense(
     recognition.interimResults = true
     recognition.lang = 'en-US'
 
-    let interimTranscript = ''
     let finalTranscript = ''
 
     recognition.onstart = () => {
       setIsListening(true)
       setError(null)
       setTranscript('')
-      interimTranscript = ''
       finalTranscript = ''
       setParsedExpense(null)
     }
 
     recognition.onresult = (event) => {
-      // accumulate final segments to finalTranscript and show interim while listening
+      let currentInterimTranscript = ''
+
+      // accumulate only final segments permanently; rebuild interim text from this event
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcriptSegment = event.results[i][0].transcript
         if (event.results[i].isFinal) {
           finalTranscript = `${finalTranscript} ${transcriptSegment}`.trim()
-          setTranscript(finalTranscript)
         } else {
-          interimTranscript += transcriptSegment
-          // show interim with final preview
-          setTranscript(`${finalTranscript} ${interimTranscript}`.trim())
+          currentInterimTranscript = `${currentInterimTranscript} ${transcriptSegment}`.trim()
         }
       }
+
+      setTranscript(`${finalTranscript} ${currentInterimTranscript}`.trim())
     }
 
     recognition.onerror = (event) => {
@@ -147,28 +172,19 @@ export function useVoiceToExpense(
 
     recognition.onend = () => {
       setIsListening(false)
-      // Parse the final transcript when recognition ends
-      const text = finalTranscript.trim()
-      if (text) {
-        setTranscript(text)
-        const expense = parseExpenseFromTranscript(text)
-        setParsedExpense(expense)
-        if (onExpenseRecognized) {
-          try { onExpenseRecognized(expense) } catch (e) { console.error(e) }
-        }
-      }
+      applyRecognizedTranscript(finalTranscript)
     }
 
     recognitionRef.current = recognition
     return true
-  }, [])
+  }, [applyRecognizedTranscript])
 
   const startListening = useCallback(() => {
     if (!initializeSpeechRecognition()) return
 
     try {
       recognitionRef.current.start()
-    } catch (err) {
+    } catch {
       // Already started
       console.log('Recognition already started')
     }
@@ -179,7 +195,7 @@ export function useVoiceToExpense(
       recognitionRef.current.stop()
     }
     setIsListening(false)
-  }, [transcript, onExpenseRecognized])
+  }, [])
 
   const toggleListening = useCallback(() => {
     if (isListening) {
@@ -196,10 +212,14 @@ export function useVoiceToExpense(
   const resetTranscript = useCallback(() => {
     setTranscript('')
     setParsedExpense(null)
+    externalTranscriptRef.current = null
   }, [])
 
   useEffect(() => {
-    if (!externalTranscript) return
+    if (!externalTranscript) {
+      externalTranscriptRef.current = null
+      return undefined
+    }
 
     const text = externalTranscript.trim()
     if (!text) return
@@ -211,21 +231,19 @@ export function useVoiceToExpense(
 
     externalTranscriptRef.current = text
 
-    setTranscript(text)
-    setIsListening(false)
-    setError(null)
+    const timeoutId = window.setTimeout(() => {
+      setIsListening(false)
+      setError(null)
 
-    const expense = parseExpenseFromTranscript(text)
-    setParsedExpense(expense)
-
-    if (onExpenseRecognized) {
       try {
-        onExpenseRecognized(expense)
-      } catch (e) {
-        console.error('Failed to process external transcript', e)
+        applyRecognizedTranscript(text)
+      } catch (error) {
+        console.error('Failed to process external transcript', error)
       }
-    }
-  }, [externalTranscript])
+    }, 0)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [applyRecognizedTranscript, externalTranscript])
 
   return {
     // State

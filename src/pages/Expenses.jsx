@@ -9,11 +9,22 @@ import VoiceRecorder from "../components/common/VoiceRecorder"
 import { ToastContainer } from "../components/common/Toast"
 import { useExpenses } from "../context/ExpensesContext"
 
+const getInitialAndroidVoiceTranscript = () => {
+  if (typeof window === "undefined") return null
+
+  const voiceTranscript = new URLSearchParams(window.location.search).get("voice")
+  const normalizedTranscript = voiceTranscript?.trim()
+
+  return normalizedTranscript || null
+}
+
 const Expenses = () => {
   const { addExpense, deleteExpense, expenses, hasPendingWrites, isReady } = useExpenses()
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("All")
-  const [androidVoiceTranscript, setAndroidVoiceTranscript] = useState(null)
+  const [androidVoiceTranscript, setAndroidVoiceTranscript] = useState(
+    getInitialAndroidVoiceTranscript,
+  )
 
   const categories = [
     "All",
@@ -71,22 +82,13 @@ const Expenses = () => {
   }
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const voiceTranscript = params.get("voice")
-
-    if (!voiceTranscript) return
-
-    const decodedTranscript = voiceTranscript.trim()
-
-    if (!decodedTranscript) return
-
-    setAndroidVoiceTranscript(decodedTranscript)
+    if (!androidVoiceTranscript) return
 
     // Remove the voice parameter after reading it.
     const cleanUrl = `${window.location.pathname}${window.location.hash}`
 
     window.history.replaceState({}, document.title, cleanUrl)
-  }, [])
+  }, [androidVoiceTranscript])
 
   const handleQuickAdd = async () => {
     const amountRaw = window.prompt("Enter amount (numbers only)")

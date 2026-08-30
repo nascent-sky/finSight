@@ -28,13 +28,18 @@ const Login = () => {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user && !skipRedirectRef.current) {
+      if (!user) return
+
+      setAuthError("")
+      setIsSubmitting(false)
+
+      if (!skipRedirectRef.current && !isMergePromptOpen && !isResolvingMerge) {
         navigate("/")
       }
     })
 
     return () => unsubscribe()
-  }, [navigate])
+  }, [isMergePromptOpen, isResolvingMerge, navigate])
 
   const saveUserProfile = async (user) => {
     await setDoc(
@@ -56,6 +61,39 @@ const Login = () => {
     navigate("/")
   }
 
+  const finalizeAuthenticatedLogin = async (authenticatedUser) => {
+    const user = auth.currentUser ?? authenticatedUser
+    if (!user) {
+      throw new Error("Authenticated user is unavailable.")
+    }
+
+    setAuthError("")
+
+    try {
+      await saveUserProfile(user)
+    } catch (error) {
+      console.error("Failed to save signed-in user profile", error)
+    }
+
+    const guestExpenses = getGuestExpenses()
+    if (guestExpenses.length > 0 || hasGuestExpenses()) {
+      setGuestExpenseCount(guestExpenses.length)
+      setIsMergePromptOpen(true)
+      return
+    }
+
+    finishLogin()
+  }
+
+  const confirmGuestDiscard = () => {
+    const label =
+      guestExpenseCount === 1 ? "this 1 guest expense" : `these ${guestExpenseCount} guest expenses`
+
+    return window.confirm(
+      `Discard ${label}? This will permanently delete the offline data stored on this device.`,
+    )
+  }
+
   const handleGoogleLogin = async () => {
     setAuthError("")
     setIsSubmitting(true)
@@ -63,20 +101,16 @@ const Login = () => {
 
     try {
       const result = await signInWithPopup(auth, provider)
-      const user = result.user
+      await finalizeAuthenticatedLogin(result.user)
+    } catch (error) {
+      console.error("Google Login Error:", error)
+      const authenticatedUser = auth.currentUser
 
-      await saveUserProfile(user)
-
-      const guestExpenses = getGuestExpenses()
-      if (guestExpenses.length > 0 || hasGuestExpenses()) {
-        setGuestExpenseCount(guestExpenses.length)
-        setIsMergePromptOpen(true)
+      if (authenticatedUser) {
+        await finalizeAuthenticatedLogin(authenticatedUser)
         return
       }
 
-      finishLogin()
-    } catch (error) {
-      console.error("Google Login Error:", error)
       skipRedirectRef.current = false
       setAuthError("Google sign-in failed. Please try again.")
     } finally {
@@ -91,6 +125,11 @@ const Login = () => {
 
   const handleMergeDecision = async (shouldMerge) => {
     setAuthError("")
+
+    if (!shouldMerge && !confirmGuestDiscard()) {
+      return
+    }
+
     setIsResolvingMerge(true)
 
     try {
@@ -154,11 +193,8 @@ const Login = () => {
 
       <Modal
         isOpen={isMergePromptOpen}
-        onClose={() => {
-          if (!isResolvingMerge) {
-            handleMergeDecision(false)
-          }
-        }}
+        onClose={() => {}}
+        isDismissable={false}
         title="Merge offline expenses?"
       >
         <div className="space-y-4">

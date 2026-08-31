@@ -49,6 +49,21 @@ public class ExpenseWidget extends AppWidgetProvider {
                 pendingIntent
         );
 
+        Intent appIntent = new Intent(context, LauncherActivity.class);
+
+        PendingIntent appPendingIntent = PendingIntent.getActivity(
+                context,
+                101,
+                appIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT |
+                        PendingIntent.FLAG_IMMUTABLE
+        );
+
+        views.setOnClickPendingIntent(
+                R.id.widget_open_app,
+                appPendingIntent
+        );
+
         appWidgetManager.updateAppWidget(
                 appWidgetId,
                 views

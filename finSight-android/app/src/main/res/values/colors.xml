@@ -15,8 +15,8 @@
 -->
 <resources>
     <color name="shortcut_background">#F5F5F5</color>
-    <color name="widget_background">#FFF7F7F8</color>
-    <color name="widget_text">#FF202124</color>
-    <color name="widget_button">#4F46E5</color>
-    <color name="widget_button_text">#FFFFFFFF</color>
+    <color name="widget_background">#FFF1F3F5</color>
+    <color name="widget_text">#FF3C4043</color>
+    <color name="widget_button">#5B5BD6</color>
+    <color name="widget_button_text">#FFF8F8FC</color>
 </resources>

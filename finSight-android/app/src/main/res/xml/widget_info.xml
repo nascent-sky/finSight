@@ -2,10 +2,14 @@
 
 <appwidget-provider
     xmlns:android="http://schemas.android.com/apk/res/android"
+    android:targetCellWidth="4"
+    android:targetCellHeight="1"
     android:minWidth="180dp"
     android:minHeight="48dp"
-    android:targetCellWidth="2"
-    android:targetCellHeight="1"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="48dp"
+    android:maxResizeWidth="360dp"
+    android:maxResizeHeight="48dp"
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/widget_expense"
     android:resizeMode="horizontal"

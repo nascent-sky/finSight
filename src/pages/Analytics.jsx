@@ -5,11 +5,11 @@ import Card from "../components/ui/Card"
 import InvestmentSimulator from "../components/common/InvestmentSimulator"
 import FinancialGoalPlanner from "../components/common/FinancialGoalPlanner"
 import WealthProjectionCalculator from "../components/common/WealthProjectionCalculator"
-import { useExpenses } from "../context/ExpensesContext"
+import useExpenseTransactions from "../hooks/useExpenseTransactions"
 import settingsService from "../services/settingsService"
 
 const Analytics = () => {
-  const { expenses } = useExpenses()
+  const expenses = useExpenseTransactions()
   const [monthlyIncome, setMonthlyIncome] = useState(
     Number(settingsService.getMonthlyIncome()) || 0,
   )
@@ -20,7 +20,7 @@ const Analytics = () => {
     const currentYear = today.getFullYear()
 
     const monthExpenses = (expenseList || []).filter((expense) => {
-      const expenseDate = new Date(expense.date)
+      const expenseDate = new Date(expense.datetime)
       if (Number.isNaN(expenseDate.getTime())) return false
 
       return (
@@ -40,7 +40,7 @@ const Analytics = () => {
     let total = 0
 
     monthExpenses.forEach((expense) => {
-      const day = Number(String(expense.date || "").split("-")[2]) || 1
+      const day = new Date(expense.datetime).getDate() || 1
       const amount = Number(expense.amount) || 0
       const categoryName = expense.category || "Other"
 

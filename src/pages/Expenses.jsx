@@ -8,6 +8,7 @@ import SmartExpenseAnalyzer from "../components/common/SmartExpenseAnalyzer"
 import VoiceRecorder from "../components/common/VoiceRecorder"
 import { ToastContainer } from "../components/common/Toast"
 import { useExpenses } from "../context/ExpensesContext"
+import { addVoiceTransaction } from "../services/voiceTransactionService"
 
 const getInitialAndroidVoiceTranscript = () => {
   if (typeof window === "undefined") return null
@@ -68,17 +69,13 @@ const Expenses = () => {
     })
 
   const handleVoiceExpenseDetected = async (newExpense) => {
-    const savedExpense = await addExpense({
-      amount: Number(newExpense.amount) || 0,
-      category: newExpense.category || "Other",
-      note: newExpense.note || newExpense.merchant || "Voice input",
-      date: newExpense.date || new Date().toISOString().split("T")[0],
-      merchant: newExpense.merchant,
-    })
+    const savedExpense = await addVoiceTransaction(newExpense)
 
     if (!savedExpense) {
       alert("Could not save this expense right now.")
     }
+
+    return savedExpense
   }
 
   useEffect(() => {

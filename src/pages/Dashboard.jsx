@@ -13,11 +13,11 @@ import AISuggestions from "../components/common/AISuggestions"
 import SmartAIAdvisor from "../components/common/SmartAIAdvisor"
 import LifestyleExpenseTracker from "../components/common/LifestyleExpenseTracker"
 import QuickAddExpenseModal from "../components/common/QuickAddExpenseModal"
-import { useExpenses } from "../context/ExpensesContext"
+import useExpenseTransactions from "../hooks/useExpenseTransactions"
 import settingsService from "../services/settingsService"
 
 const Dashboard = () => {
-  const { expenses } = useExpenses()
+  const expenses = useExpenseTransactions()
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false)
   const initialSettings = settingsService.getSettings()
   const [monthlyIncome, setMonthlyIncome] = useState(Number(initialSettings.monthlyIncome) || 0)
@@ -166,7 +166,7 @@ const Dashboard = () => {
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                       {expense.note || "No note"} |{" "}
-                      {new Date(expense.date).toLocaleDateString()}
+                      {new Date(expense.datetime).toLocaleDateString()}
                     </p>
                   </div>
                   <p className="font-semibold text-red-500 dark:text-red-400">

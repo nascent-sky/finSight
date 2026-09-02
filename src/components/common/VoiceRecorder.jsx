@@ -60,16 +60,18 @@ export default function VoiceRecorder({
 
       const saveDetectedExpense = async () => {
         try {
-          await onExpenseDetected({
+          const saveResult = await onExpenseDetected({
             id: Date.now(),
             amount: parsedExpense.amount,
             category: parsedExpense.category,
             note: parsedExpense.note || parsedExpense.merchant || 'Voice input',
             date: new Date().toISOString().split('T')[0],
             merchant: parsedExpense.merchant,
+            originalTranscript: parsedExpense.originalTranscript,
           })
 
           if (!isActive) return
+          if (saveResult?.pendingAuth) return
 
           resetTranscript()
           setShowPreview(false)
@@ -97,34 +99,37 @@ export default function VoiceRecorder({
     resetTranscript,
   ])
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!parsedExpense || !onExpenseDetected) return
 
     setIsSubmitting(true)
-    setTimeout(() => {
-      try {
-        onExpenseDetected({
-          id: Date.now(),
-          amount: parsedExpense.amount,
-          category: parsedExpense.category,
-          note: parsedExpense.note || parsedExpense.merchant || 'Voice input',
-          date: new Date().toISOString().split('T')[0],
-          merchant: parsedExpense.merchant,
-        })
-        showToast(`✓ Expense saved: ₹${parsedExpense.amount}`, 'success', 3000)
-        resetTranscript()
-        setShowPreview(false)
-
-        if (onExternalTranscriptConsumed) {
-          onExternalTranscriptConsumed()
-        }
-
+    try {
+      const saveResult = await onExpenseDetected({
+        id: Date.now(),
+        amount: parsedExpense.amount,
+        category: parsedExpense.category,
+        note: parsedExpense.note || parsedExpense.merchant || 'Voice input',
+        date: new Date().toISOString().split('T')[0],
+        merchant: parsedExpense.merchant,
+        originalTranscript: parsedExpense.originalTranscript,
+      })
+      if (saveResult?.pendingAuth) {
         setIsSubmitting(false)
-      } catch {
-        showToast('Failed to save expense', 'error', 3000)
-        setIsSubmitting(false)
+        return
       }
-    }, 500)
+      showToast(`✓ Expense saved: ₹${parsedExpense.amount}`, 'success', 3000)
+      resetTranscript()
+      setShowPreview(false)
+
+      if (onExternalTranscriptConsumed) {
+        onExternalTranscriptConsumed()
+      }
+
+      setIsSubmitting(false)
+    } catch {
+      showToast('Failed to save expense', 'error', 3000)
+      setIsSubmitting(false)
+    }
   }
   // Recording mode - pulsing mic button
   if (!showPreview) {

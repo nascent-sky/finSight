@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useLocation, useNavigate } from "react-router-dom"
 import { onAuthStateChanged, signInWithPopup } from "firebase/auth"
 import { doc, setDoc } from "firebase/firestore"
 import { FcGoogle } from "react-icons/fc"
@@ -15,13 +15,28 @@ import {
   initializeGuestMode,
   mergeGuestExpensesIntoAccount,
 } from "../../services/dataService"
+import {
+  discardGuestTransactions,
+  getGuestTransactions,
+  hasGuestTransactions,
+  mergeGuestTransactionsIntoAccount,
+} from "../../services/transactionService"
+
+const getSafeReturnPath = (search) => {
+  const returnTo = new URLSearchParams(search).get("returnTo")
+
+  return returnTo?.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/"
+}
 
 const Login = () => {
+  const location = useLocation()
   const navigate = useNavigate()
   const skipRedirectRef = useRef(false)
+  const returnTo = useMemo(() => getSafeReturnPath(location.search), [location.search])
 
   const [authError, setAuthError] = useState("")
   const [guestExpenseCount, setGuestExpenseCount] = useState(0)
+  const [guestTransactionCount, setGuestTransactionCount] = useState(0)
   const [isMergePromptOpen, setIsMergePromptOpen] = useState(false)
   const [isResolvingMerge, setIsResolvingMerge] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -34,12 +49,12 @@ const Login = () => {
       setIsSubmitting(false)
 
       if (!skipRedirectRef.current && !isMergePromptOpen && !isResolvingMerge) {
-        navigate("/")
+        navigate(returnTo)
       }
     })
 
     return () => unsubscribe()
-  }, [isMergePromptOpen, isResolvingMerge, navigate])
+  }, [isMergePromptOpen, isResolvingMerge, navigate, returnTo])
 
   const saveUserProfile = async (user) => {
     await setDoc(
@@ -58,7 +73,7 @@ const Login = () => {
     skipRedirectRef.current = false
     setIsMergePromptOpen(false)
     setIsResolvingMerge(false)
-    navigate("/")
+    navigate(returnTo)
   }
 
   const finalizeAuthenticatedLogin = async (authenticatedUser) => {
@@ -76,8 +91,15 @@ const Login = () => {
     }
 
     const guestExpenses = getGuestExpenses()
-    if (guestExpenses.length > 0 || hasGuestExpenses()) {
+    const guestTransactions = getGuestTransactions()
+    if (
+      guestExpenses.length > 0 ||
+      hasGuestExpenses() ||
+      guestTransactions.length > 0 ||
+      hasGuestTransactions()
+    ) {
       setGuestExpenseCount(guestExpenses.length)
+      setGuestTransactionCount(guestTransactions.length)
       setIsMergePromptOpen(true)
       return
     }
@@ -86,8 +108,8 @@ const Login = () => {
   }
 
   const confirmGuestDiscard = () => {
-    const label =
-      guestExpenseCount === 1 ? "this 1 guest expense" : `these ${guestExpenseCount} guest expenses`
+    const totalGuestItems = guestExpenseCount + guestTransactionCount
+    const label = totalGuestItems === 1 ? "this 1 guest item" : `these ${totalGuestItems} guest items`
 
     return window.confirm(
       `Discard ${label}? This will permanently delete the offline data stored on this device.`,
@@ -120,7 +142,7 @@ const Login = () => {
 
   const handleContinueAsGuest = () => {
     initializeGuestMode()
-    navigate("/")
+    navigate(returnTo)
   }
 
   const handleMergeDecision = async (shouldMerge) => {
@@ -135,14 +157,20 @@ const Login = () => {
     try {
       if (shouldMerge) {
         await mergeGuestExpensesIntoAccount()
+        await mergeGuestTransactionsIntoAccount()
       } else {
         discardGuestExpenses()
+        discardGuestTransactions()
       }
 
       finishLogin()
     } catch (error) {
       console.error("Failed to resolve guest expense merge", error)
-      setAuthError("We could not finish moving your guest data. Please try again.")
+      setGuestExpenseCount(getGuestExpenses().length)
+      setGuestTransactionCount(getGuestTransactions().length)
+      setAuthError(
+        error?.message || "We could not finish moving your guest data. Please try again.",
+      )
       setIsResolvingMerge(false)
     }
   }
@@ -156,7 +184,7 @@ const Login = () => {
               Welcome back
             </h1>
             <p className="mt-1 text-sm text-gray-500">
-              Sign in to sync your expenses across devices, or keep going offline.
+              Sign in to sync your financial data across devices, or keep going offline.
             </p>
           </div>
 
@@ -186,7 +214,8 @@ const Login = () => {
           </div>
 
           <p className="mt-6 text-center text-sm text-gray-500">
-            Your guest expenses stay on this device until you choose to merge them.
+            Your guest expenses and transactions stay on this device until you choose to
+            merge them.
           </p>
         </Card>
       </div>
@@ -195,17 +224,26 @@ const Login = () => {
         isOpen={isMergePromptOpen}
         onClose={() => {}}
         isDismissable={false}
-        title="Merge offline expenses?"
+        title="Merge offline data?"
       >
         <div className="space-y-4">
           <p className="text-sm text-gray-600 dark:text-gray-300">
-            Merge your offline expenses into your account?
+            Merge your offline expenses and transactions into your account?
           </p>
           <p className="text-sm text-gray-500 dark:text-gray-400">
             {guestExpenseCount > 0
-              ? `${guestExpenseCount} guest expense${guestExpenseCount === 1 ? "" : "s"} will be compared against your cloud data and the newest version will win when there is a conflict.`
-              : "We found guest expenses on this device and can move them into your account now."}
+              ? `${guestExpenseCount} legacy guest expense${guestExpenseCount === 1 ? "" : "s"}. `
+              : ""}
+            {guestTransactionCount > 0
+              ? `${guestTransactionCount} new guest transaction${guestTransactionCount === 1 ? "" : "s"}. `
+              : ""}
+            Successful items will be removed from this device after they are saved.
           </p>
+          {authError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200">
+              {authError}
+            </p>
+          ) : null}
           <div className="flex gap-3">
             <Button
               variant="secondary"
@@ -220,7 +258,7 @@ const Login = () => {
               className="flex-1"
               disabled={isResolvingMerge}
             >
-              {isResolvingMerge ? "Merging..." : "Merge expenses"}
+              {isResolvingMerge ? "Merging..." : "Merge data"}
             </Button>
           </div>
         </div>

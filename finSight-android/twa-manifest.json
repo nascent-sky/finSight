@@ -19,8 +19,8 @@
     "path": "C:\\Users\\Niicheon\\Project\\FinSight\\finSight-android\\android.keystore",
     "alias": "android"
   },
-  "appVersionName": "2",
-  "appVersionCode": 2,
+  "appVersionName": "4",
+  "appVersionCode": 4,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://finsight-pwa.netlify.app/manifest.json",
@@ -34,6 +34,21 @@
   "isMetaQuest": false,
   "fullScopeUrl": "https://finsight-pwa.netlify.app/",
   "minSdkVersion": 21,
+  "shareTarget": {
+    "action": "https://finsight-pwa.netlify.app/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "statement",
+          "accept": [
+            "application/pdf"
+          ]
+        }
+      ]
+    }
+  },
   "orientation": "portrait",
   "fingerprints": [],
   "additionalTrustedOrigins": [],
@@ -42,5 +57,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "2"
+  "appVersion": "4"
 }

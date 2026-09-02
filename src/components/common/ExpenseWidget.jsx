@@ -4,6 +4,7 @@ import { Mic, Plus } from "lucide-react"
 import { useExpenses } from "../../context/ExpensesContext"
 import Card from "../ui/Card"
 import { useVoiceToExpense } from "../../hooks/useVoiceToExpense"
+import { addVoiceTransaction } from "../../services/voiceTransactionService"
 import { showToast } from "../../utils/toastStore"
 
 const ExpenseWidget = () => {
@@ -14,23 +15,21 @@ const ExpenseWidget = () => {
     async (expense) => {
       if (!expense || expense.amount <= 0) return
 
-      const savedExpense = await addExpense({
-        amount: expense.amount,
-        category: expense.category,
-        note: expense.note || expense.merchant || "Voice input",
-        date: new Date().toISOString().split("T")[0],
-        merchant: expense.merchant,
-      })
+      let savedExpense
+      try {
+        savedExpense = await addVoiceTransaction(expense)
+      } catch (error) {
+        showToast(error?.message || "Could not save this voice expense right now", "error")
+        return
+      }
 
       if (!savedExpense) {
-        showToast("Could not save this expense right now", "error")
+        showToast("Could not save this voice expense right now", "error")
         return
       }
 
       showToast(
-        user && !isOnline
-          ? `Saved offline: Rs ${savedExpense.amount} - syncing when you reconnect`
-          : `Saved: Rs ${savedExpense.amount} - ${savedExpense.category}`,
+        `Saved: Rs ${savedExpense.amount} - ${savedExpense.category}`,
         "success",
         3000,
       )

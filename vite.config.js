@@ -24,6 +24,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
+        importScripts: ["/share-target-handler.js"],
       },
       manifest: {
         name: "FinSight",
@@ -34,6 +35,19 @@ export default defineConfig({
         display: "standalone",
         start_url: "/",
         scope: "/",
+        share_target: {
+          action: "/share-target",
+          method: "POST",
+          enctype: "multipart/form-data",
+          params: {
+            files: [
+              {
+                name: "statement",
+                accept: ["application/pdf"],
+              },
+            ],
+          },
+        },
         icons: [
           {
             src: "/icon-192.png",

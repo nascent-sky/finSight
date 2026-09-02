@@ -23,6 +23,8 @@ import Categories from "./pages/Categories"
 import AddExpense from "./pages/AddExpense"
 import Settings from "./pages/Settings"
 import Transactions from "./pages/Transactions"
+import TransactionImport from "./pages/TransactionImport"
+import LegacyExpenseMigrationPreview from "./pages/LegacyExpenseMigrationPreview"
 import {
   buildThemeVariables,
   getAvailableThemes,
@@ -379,6 +381,21 @@ function App() {
                   isQuickAddOpen={isQuickAddOpen}
                   setIsQuickAddOpen={setIsQuickAddOpen}
                 >
+                  <Transactions />
+                </AuthLayout>
+              }
+            />
+            <Route
+              path="/expenses-legacy"
+              element={
+                <AuthLayout
+                  user={user}
+                  isSidebarOpen={isSidebarOpen}
+                  setIsSidebarOpen={setIsSidebarOpen}
+                  onAddClick={handleQuickAddExpense}
+                  isQuickAddOpen={isQuickAddOpen}
+                  setIsQuickAddOpen={setIsQuickAddOpen}
+                >
                   <Expenses />
                 </AuthLayout>
               }
@@ -440,6 +457,36 @@ function App() {
                   setIsQuickAddOpen={setIsQuickAddOpen}
                 >
                   <Transactions />
+                </AuthLayout>
+              }
+            />
+            <Route
+              path="/transactions-import"
+              element={
+                <AuthLayout
+                  user={user}
+                  isSidebarOpen={isSidebarOpen}
+                  setIsSidebarOpen={setIsSidebarOpen}
+                  onAddClick={handleQuickAddExpense}
+                  isQuickAddOpen={isQuickAddOpen}
+                  setIsQuickAddOpen={setIsQuickAddOpen}
+                >
+                  <TransactionImport />
+                </AuthLayout>
+              }
+            />
+            <Route
+              path="/migration-preview"
+              element={
+                <AuthLayout
+                  user={user}
+                  isSidebarOpen={isSidebarOpen}
+                  setIsSidebarOpen={setIsSidebarOpen}
+                  onAddClick={handleQuickAddExpense}
+                  isQuickAddOpen={isQuickAddOpen}
+                  setIsQuickAddOpen={setIsQuickAddOpen}
+                >
+                  <LegacyExpenseMigrationPreview />
                 </AuthLayout>
               }
             />

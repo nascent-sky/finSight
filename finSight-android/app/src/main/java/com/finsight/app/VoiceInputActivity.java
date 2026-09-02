@@ -39,39 +39,23 @@ public class VoiceInputActivity extends Activity {
     }
 
     private void startVoiceRecognition() {
-
-        Intent intent = new Intent(
-                RecognizerIntent.ACTION_RECOGNIZE_SPEECH
-        );
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
 
         intent.putExtra(
                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
         );
-
-        intent.putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE,
-                "en-IN"
-        );
-
-        intent.putExtra(
-                RecognizerIntent.EXTRA_PROMPT,
-                "Speak your expense"
-        );
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN");
+        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your expense");
 
         try {
-            startActivityForResult(
-                    intent,
-                    REQUEST_SPEECH_INPUT
-            );
-
-        } catch (Exception e) {
+            startActivityForResult(intent, REQUEST_SPEECH_INPUT);
+        } catch (Exception error) {
             Toast.makeText(
                     this,
                     "Speech recognition is not available",
                     Toast.LENGTH_LONG
             ).show();
-
             finish();
         }
     }
@@ -80,31 +64,21 @@ public class VoiceInputActivity extends Activity {
     public void onRequestPermissionsResult(
             int requestCode,
             String[] permissions,
-            int[] grantResults
-    ) {
-        super.onRequestPermissionsResult(
-                requestCode,
-                permissions,
-                grantResults
-        );
+            int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
-        if (requestCode == REQUEST_RECORD_AUDIO) {
+        if (requestCode != REQUEST_RECORD_AUDIO) return;
 
-            if (grantResults.length > 0 &&
-                    grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-
-                startVoiceRecognition();
-
-            } else {
-
-                Toast.makeText(
-                        this,
-                        "Microphone permission is required",
-                        Toast.LENGTH_LONG
-                ).show();
-
-                finish();
-            }
+        if (grantResults.length > 0 &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startVoiceRecognition();
+        } else {
+            Toast.makeText(
+                    this,
+                    "Microphone permission is required",
+                    Toast.LENGTH_LONG
+            ).show();
+            finish();
         }
     }
 
@@ -112,29 +86,17 @@ public class VoiceInputActivity extends Activity {
     protected void onActivityResult(
             int requestCode,
             int resultCode,
-            Intent data
-    ) {
-        super.onActivityResult(
-                requestCode,
-                resultCode,
-                data
-        );
+            Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
 
         if (requestCode == REQUEST_SPEECH_INPUT) {
-
             if (resultCode == RESULT_OK && data != null) {
-
-                ArrayList<String> results =
-                        data.getStringArrayListExtra(
-                                RecognizerIntent.EXTRA_RESULTS
-                        );
+                ArrayList<String> results = data.getStringArrayListExtra(
+                        RecognizerIntent.EXTRA_RESULTS
+                );
 
                 if (results != null && !results.isEmpty()) {
-
-                    String transcript = results.get(0);
-
-                    openFinSightWithTranscript(transcript);
-
+                    openFinSightWithTranscript(results.get(0));
                     return;
                 }
             }
@@ -144,26 +106,17 @@ public class VoiceInputActivity extends Activity {
     }
 
     private void openFinSightWithTranscript(String transcript) {
+        String encodedTranscript = android.net.Uri.encode(transcript);
+        String url = "https://finsight-pwa.netlify.app/expenses?voice="
+                + encodedTranscript;
 
-        String encodedTranscript =
-                android.net.Uri.encode(transcript);
-
-        String url =
-                "https://finsight-pwa.netlify.app/expenses?voice="
-                        + encodedTranscript;
-
-        Intent intent = new Intent(
-                Intent.ACTION_VIEW,
-                android.net.Uri.parse(url)
-        );
-
+        Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
         intent.addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK |
                         Intent.FLAG_ACTIVITY_CLEAR_TOP
         );
 
         startActivity(intent);
-
         finish();
     }
 }

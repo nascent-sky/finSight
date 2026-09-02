@@ -22,6 +22,7 @@ import Analytics from "./pages/Analytics"
 import Categories from "./pages/Categories"
 import AddExpense from "./pages/AddExpense"
 import Settings from "./pages/Settings"
+import Transactions from "./pages/Transactions"
 import {
   buildThemeVariables,
   getAvailableThemes,
@@ -424,6 +425,21 @@ function App() {
                   setIsQuickAddOpen={setIsQuickAddOpen}
                 >
                   <AddExpense />
+                </AuthLayout>
+              }
+            />
+            <Route
+              path="/transactions-new"
+              element={
+                <AuthLayout
+                  user={user}
+                  isSidebarOpen={isSidebarOpen}
+                  setIsSidebarOpen={setIsSidebarOpen}
+                  onAddClick={handleQuickAddExpense}
+                  isQuickAddOpen={isQuickAddOpen}
+                  setIsQuickAddOpen={setIsQuickAddOpen}
+                >
+                  <Transactions />
                 </AuthLayout>
               }
             />

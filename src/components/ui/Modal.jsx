@@ -20,7 +20,7 @@ const Modal = ({
 
       <div
         className={clsx(
-          "theme-modal relative mx-4 w-full max-w-md rounded-xl shadow-lg",
+          "theme-modal relative w-[calc(100%-2rem)] min-w-0 max-w-md rounded-xl shadow-lg",
           className,
         )}
       >

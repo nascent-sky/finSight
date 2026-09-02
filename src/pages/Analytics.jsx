@@ -9,7 +9,7 @@ import useExpenseTransactions from "../hooks/useExpenseTransactions"
 import settingsService from "../services/settingsService"
 
 const Analytics = () => {
-  const expenses = useExpenseTransactions()
+  const { expenses, isSampleData } = useExpenseTransactions()
   const [monthlyIncome, setMonthlyIncome] = useState(
     Number(settingsService.getMonthlyIncome()) || 0,
   )
@@ -74,7 +74,13 @@ const Analytics = () => {
   const leftoverMoney = monthlyIncome - monthlyStats.totalExpenses
 
   return (
-    <div className="space-y-8">
+    <div className="w-full min-w-0 space-y-8">
+      {isSampleData && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
+          <span className="font-semibold">Showing sample data.</span>{" "}
+          Add your first expense to see your own insights.
+        </div>
+      )}
       <div className="theme-hero rounded-2xl p-6 shadow-lg">
         <div className="flex items-center gap-3">
           <div className="rounded-full bg-white/20 p-2">

@@ -14,7 +14,6 @@ import {
   Lightbulb,
   MoreVertical,
   Plane,
-  Plus,
   Repeat,
   ShoppingBag,
   Tag,
@@ -28,7 +27,7 @@ import Button from "../components/ui/Button"
 import Input from "../components/ui/Input"
 import Modal from "../components/ui/Modal"
 import VoiceRecorder from "../components/common/VoiceRecorder"
-import { ToastContainer } from "../components/common/Toast"
+import AddTransactionModal from "../components/transactions/AddTransactionModal"
 import { auth } from "../firebase"
 import { parseExpenseFromTranscript } from "../hooks/useVoiceToExpense"
 import {
@@ -38,33 +37,17 @@ import {
   subscribeToIncomeSources,
 } from "../services/incomeSourceService"
 import {
-  addTransaction,
   deleteTransaction,
   subscribeToTransactions,
   updateTransaction,
 } from "../services/transactionService"
 import { addVoiceTransaction } from "../services/voiceTransactionService"
+import { getSampleTransactions } from "../services/sampleTransactionService"
 
 const filters = [
   { label: "All", value: "all" },
   { label: "Cash", value: "cash" },
   { label: "UPI", value: "upi" },
-]
-
-const transactionCategories = [
-  "Other",
-  "Food & Dining",
-  "Transport",
-  "Shopping",
-  "Utilities",
-  "Entertainment",
-  "Subscription",
-  "Healthcare",
-  "Housing",
-  "Education",
-  "Travel",
-  "Gifts",
-  "Income",
 ]
 
 const categoryIcons = {
@@ -114,16 +97,6 @@ const toDatetimeLocal = (datetime) => {
   return localDate.toISOString().slice(0, 16)
 }
 
-const createAddFormState = () => ({
-  amount: "",
-  type: "expense",
-  datetime: toDatetimeLocal(new Date()),
-  person: "",
-  paymentMethod: "cash",
-  category: "Other",
-  note: "",
-})
-
 const SWIPE_ACTION_WIDTH = 144
 
 const TransactionRow = ({
@@ -139,39 +112,43 @@ const TransactionRow = ({
   onEdit,
   onDelete,
   onRememberIncomeSource,
+  isReadOnly = false,
 }) => {
   const [dragOffset, setDragOffset] = useState(null)
-  const touchState = useRef(null)
+  const pointerState = useRef(null)
   const currentOffset = useRef(0)
   const category = transaction.category || "Other"
   const CategoryIcon = categoryIcons[category.toLowerCase()] || Tag
   const isIncome = transaction.type === "income"
   const isRemembered = isIncomeSource(transaction.person, incomeSources)
-  const canRemember =
+  const canRemember = !isReadOnly &&
     activeTab === "expense" && isIncome && transaction.person?.trim() && !isRemembered
   const isRemembering =
     rememberingPerson === normalizeIncomeSourcePerson(transaction.person)
-  const restingOffset = isSwipeOpen ? -SWIPE_ACTION_WIDTH : 0
+  const restingOffset = !isReadOnly && isSwipeOpen ? -SWIPE_ACTION_WIDTH : 0
   const translateX = dragOffset ?? restingOffset
 
-  const handleTouchStart = (event) => {
-    const touch = event.touches[0]
-    touchState.current = {
-      startX: touch.clientX,
-      startY: touch.clientY,
+  const handlePointerStart = (event) => {
+    if (isReadOnly) return
+    if (event.pointerType === "mouse" && event.button !== 0) return
+
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    pointerState.current = {
+      startX: event.clientX,
+      startY: event.clientY,
       startOffset: restingOffset,
       direction: null,
     }
     currentOffset.current = restingOffset
   }
 
-  const handleTouchMove = (event) => {
-    const gesture = touchState.current
+  const handlePointerMove = (event) => {
+    if (isReadOnly) return
+    const gesture = pointerState.current
     if (!gesture) return
 
-    const touch = event.touches[0]
-    const deltaX = touch.clientX - gesture.startX
-    const deltaY = touch.clientY - gesture.startY
+    const deltaX = event.clientX - gesture.startX
+    const deltaY = event.clientY - gesture.startY
 
     if (!gesture.direction && Math.max(Math.abs(deltaX), Math.abs(deltaY)) > 8) {
       gesture.direction = Math.abs(deltaX) > Math.abs(deltaY) * 1.2
@@ -190,9 +167,10 @@ const TransactionRow = ({
     setDragOffset(nextOffset)
   }
 
-  const finishTouch = () => {
-    const wasHorizontal = touchState.current?.direction === "horizontal"
-    touchState.current = null
+  const finishPointer = () => {
+    if (isReadOnly) return
+    const wasHorizontal = pointerState.current?.direction === "horizontal"
+    pointerState.current = null
 
     if (!wasHorizontal) {
       setDragOffset(null)
@@ -206,9 +184,9 @@ const TransactionRow = ({
   return (
     <article
       data-transaction-row={transaction.id}
-      className="theme-card relative overflow-hidden rounded-xl border"
+      className="theme-card relative w-full min-w-0 max-w-full overflow-hidden rounded-xl border"
     >
-      <div className="absolute inset-y-0 right-0 flex w-36 md:hidden">
+      {!isReadOnly ? <div className="absolute inset-y-0 right-0 flex w-36 md:hidden">
         <button
           type="button"
           onClick={() => onEdit(transaction)}
@@ -224,14 +202,14 @@ const TransactionRow = ({
         >
           <Trash2 size={18} /> {isDeleting ? "Deleting" : "Delete"}
         </button>
-      </div>
+      </div> : null}
 
       <div
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={finishTouch}
-        onTouchCancel={finishTouch}
-        className={`theme-card relative flex touch-pan-y items-center gap-3 p-3 sm:gap-4 ${
+        onPointerDown={handlePointerStart}
+        onPointerMove={handlePointerMove}
+        onPointerUp={finishPointer}
+        onPointerCancel={finishPointer}
+        className={`theme-card relative flex w-full min-w-0 touch-pan-y items-center gap-3 p-3 sm:gap-4 ${
           dragOffset == null ? "transition-transform duration-200 ease-out" : ""
         }`}
         style={{ transform: `translateX(${translateX}px)` }}
@@ -241,10 +219,10 @@ const TransactionRow = ({
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-2">
-            <h2 className="theme-text truncate text-sm font-semibold sm:text-base">{category}</h2>
+          <div className="flex min-w-0 max-w-full items-baseline gap-x-2">
+            <h2 className="theme-text min-w-0 truncate text-sm font-semibold sm:text-base">{category}</h2>
             {transaction.person ? (
-              <span className="theme-muted-text truncate text-xs sm:text-sm">
+              <span className="theme-muted-text min-w-0 truncate text-xs sm:text-sm">
                 · {transaction.person}
               </span>
             ) : null}
@@ -254,16 +232,16 @@ const TransactionRow = ({
               {transaction.note}
             </p>
           ) : null}
-          <div className="theme-muted-text mt-1 flex flex-wrap gap-x-2 text-[11px] sm:text-xs">
-            <span>{formatDatetime(transaction.datetime)}</span>
+          <div className="theme-muted-text mt-1 flex min-w-0 flex-wrap gap-x-2 text-[11px] sm:text-xs">
+            <span className="min-w-0 truncate">{formatDatetime(transaction.datetime)}</span>
             <span aria-hidden="true">·</span>
             <span className="uppercase">{transaction.paymentMethod}</span>
           </div>
         </div>
 
-        <div className="shrink-0 text-right">
+        <div className="max-w-[42%] min-w-0 shrink-0 text-right">
           <p
-            className={`text-sm font-bold sm:text-base ${
+            className={`break-words text-sm font-bold sm:text-base ${
               isIncome
                 ? "text-green-600 dark:text-green-400"
                 : "text-red-600 dark:text-red-400"
@@ -282,7 +260,7 @@ const TransactionRow = ({
             </button>
           ) : null}
 
-          <div className="mt-1 hidden justify-end gap-1 md:flex">
+          {!isReadOnly ? <div className="mt-1 hidden justify-end gap-1 md:flex">
             {isDesktopMenuOpen ? (
               <>
                 <button
@@ -314,7 +292,7 @@ const TransactionRow = ({
                 <MoreVertical size={17} />
               </button>
             )}
-          </div>
+          </div> : null}
         </div>
       </div>
     </article>
@@ -341,9 +319,7 @@ const Transactions = () => {
   const [deletingId, setDeletingId] = useState(null)
   const [feedback, setFeedback] = useState(null)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
-  const [addForm, setAddForm] = useState(createAddFormState)
-  const [addFormError, setAddFormError] = useState("")
-  const [isSavingAdd, setIsSavingAdd] = useState(false)
+  const [addInitialTransaction, setAddInitialTransaction] = useState(null)
   const [isVoiceAdd, setIsVoiceAdd] = useState(false)
   const [error, setError] = useState("")
   const handledVoiceTranscript = useRef(null)
@@ -415,10 +391,10 @@ const Transactions = () => {
       return
     }
 
-    setAddForm({
+    setAddInitialTransaction({
       amount: String(voiceExpense.amount),
       type: "expense",
-      datetime: toDatetimeLocal(new Date()),
+      datetime: new Date().toISOString(),
       person: "",
       paymentMethod: "cash",
       category: voiceExpense.category || "Other",
@@ -428,7 +404,6 @@ const Transactions = () => {
         voiceExpense.originalTranscript ||
         "Voice input",
     })
-    setAddFormError("")
     setIsVoiceAdd(true)
     setIsAddModalOpen(true)
   }, [location.search])
@@ -461,9 +436,23 @@ const Transactions = () => {
 
   const isLoading = areTransactionsLoading || areIncomeSourcesLoading
 
+  const sampleTransactions = useMemo(
+    () => getSampleTransactions().map((transaction, index) => ({
+      id: `__finsight_sample_display_only_${index}`,
+      ...transaction,
+    })),
+    [],
+  )
+  const isShowingSampleData = !isLoading && !error &&
+    !transactions.some((transaction) => transaction.type === "expense")
+
   const visibleTransactions = useMemo(
-    () =>
-      transactions.filter((transaction) => {
+    () => {
+      const sourceTransactions = isShowingSampleData && activeTab === "expense"
+        ? sampleTransactions
+        : transactions
+
+      return sourceTransactions.filter((transaction) => {
         const matchesTab =
           activeTab === "expense" ||
           (transaction.type === "income" &&
@@ -472,8 +461,9 @@ const Transactions = () => {
           activeFilter === "all" || transaction.paymentMethod === activeFilter
 
         return matchesTab && matchesPaymentMethod
-      }),
-    [activeFilter, activeTab, incomeSources, transactions],
+      })
+    },
+    [activeFilter, activeTab, incomeSources, isShowingSampleData, sampleTransactions, transactions],
   )
 
   const handleRememberIncomeSource = async (person) => {
@@ -571,71 +561,19 @@ const Transactions = () => {
     navigate(`${location.pathname}${query ? `?${query}` : ""}`, { replace: true })
   }
 
-  const openAddTransaction = () => {
-    setIsVoiceAdd(false)
-    setAddForm(createAddFormState())
-    setAddFormError("")
-    setIsAddModalOpen(true)
-  }
-
   const closeAddTransaction = () => {
-    if (isSavingAdd) return
     setIsAddModalOpen(false)
-    setAddFormError("")
     if (isVoiceAdd) {
       setIsVoiceAdd(false)
       clearVoiceParameter()
     }
   }
 
-  const handleAddField = (event) => {
-    const { name, value } = event.target
-    setAddForm((current) => ({ ...current, [name]: value }))
-  }
-
-  const handleAddTransaction = async (event) => {
-    event.preventDefault()
-    if (isSavingAdd) return
-
-    const amount = Number(addForm.amount)
-    const date = new Date(addForm.datetime)
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setAddFormError("Amount must be greater than zero.")
-      return
-    }
-    if (Number.isNaN(date.getTime())) {
-      setAddFormError("Choose a valid date and time.")
-      return
-    }
-
-    setIsSavingAdd(true)
-    setAddFormError("")
-
-    try {
-      await addTransaction({
-        amount,
-        datetime: date.toISOString(),
-        type: isVoiceAdd ? "expense" : addForm.type,
-        person: isVoiceAdd ? "" : addForm.person,
-        paymentMethod: isVoiceAdd ? "cash" : addForm.paymentMethod,
-        category: addForm.category || "Other",
-        note: addForm.note,
-      })
-      setIsAddModalOpen(false)
-      setAddForm(createAddFormState())
-      setFeedback({
-        type: "success",
-        message: isVoiceAdd ? "Voice expense added." : "Transaction added.",
-      })
-      if (isVoiceAdd) {
-        setIsVoiceAdd(false)
-        clearVoiceParameter()
-      }
-    } catch (saveError) {
-      setAddFormError(saveError?.message || "Could not add this transaction.")
-    } finally {
-      setIsSavingAdd(false)
-    }
+  const handleAddTransactionSaved = () => {
+    setFeedback({
+      type: "success",
+      message: isVoiceAdd ? "Voice expense added." : "Transaction added.",
+    })
   }
 
   const handleDeleteTransaction = async (transaction) => {
@@ -664,17 +602,15 @@ const Transactions = () => {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
-      <ToastContainer />
-
-      <div className="theme-hero rounded-2xl p-6 shadow-lg">
+    <div className="mx-auto w-full min-w-0 max-w-5xl space-y-5">
+      <div className="theme-hero w-full min-w-0 rounded-2xl p-6 shadow-lg">
         <h1 className="text-3xl font-bold">Transactions</h1>
         <p className="mt-2 opacity-90">Your expenses and income in one place</p>
       </div>
 
       <VoiceRecorder onExpenseDetected={handleVoiceExpenseDetected} />
 
-      <div className="grid grid-cols-2 gap-3" role="tablist" aria-label="Transaction view">
+      <div className="grid w-full min-w-0 grid-cols-2 gap-3" role="tablist" aria-label="Transaction view">
         {[
           { label: "Expense", value: "expense" },
           { label: "Income", value: "income" },
@@ -688,7 +624,7 @@ const Transactions = () => {
               role="tab"
               aria-selected={isActive}
               onClick={() => setActiveTab(tab.value)}
-              className={`theme-card rounded-xl border px-4 py-4 text-sm font-semibold transition-all ${
+              className={`theme-card min-w-0 rounded-xl border px-4 py-4 text-sm font-semibold transition-all ${
                 isActive
                   ? "border-indigo-600 text-indigo-600 ring-2 ring-indigo-500/20 dark:text-indigo-400"
                   : "theme-muted-text hover:-translate-y-0.5"
@@ -700,8 +636,8 @@ const Transactions = () => {
         })}
       </div>
 
-      <div className="flex justify-end">
-        <div className="relative">
+      <div className="flex w-full min-w-0 justify-end">
+        <div className="relative min-w-0">
           <button
             type="button"
             aria-label="Filter transactions"
@@ -743,6 +679,13 @@ const Transactions = () => {
         </Card>
       ) : null}
 
+      {isShowingSampleData && activeTab === "expense" ? (
+        <div className="w-full min-w-0 break-words rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
+          <span className="font-semibold">Showing sample data.</span>{" "}
+          Add your first expense to replace these examples.
+        </div>
+      ) : null}
+
       {isLoading ? (
         <Card padding="lg" className="text-center">
           <p className="theme-muted-text">Loading transactions...</p>
@@ -756,7 +699,7 @@ const Transactions = () => {
           </p>
         </Card>
       ) : (
-        <section className="space-y-3" aria-live="polite">
+        <section className="w-full min-w-0 space-y-3" aria-live="polite">
           {visibleTransactions.map((transaction) => (
             <TransactionRow
               key={transaction.id}
@@ -767,6 +710,7 @@ const Transactions = () => {
               isSwipeOpen={openSwipeId === transaction.id}
               isDesktopMenuOpen={openDesktopMenuId === transaction.id}
               isDeleting={deletingId === transaction.id}
+              isReadOnly={isShowingSampleData && activeTab === "expense"}
               onSwipeOpen={(isOpen) => {
                 setOpenDesktopMenuId(null)
                 setOpenSwipeId(isOpen ? transaction.id : null)
@@ -796,15 +740,6 @@ const Transactions = () => {
         </div>
       ) : null}
 
-      <button
-        type="button"
-        aria-label="Add transaction"
-        onClick={openAddTransaction}
-        className="theme-button-primary fixed bottom-24 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full shadow-xl md:bottom-6 md:right-6"
-      >
-        <Plus size={26} />
-      </button>
-
       <Modal
         isOpen={Boolean(editingTransaction && editForm)}
         onClose={closeEditTransaction}
@@ -813,7 +748,7 @@ const Transactions = () => {
         className="max-h-[90vh] overflow-y-auto"
       >
         {editForm ? (
-          <form className="space-y-4" onSubmit={handleSaveEdit}>
+          <form className="min-w-0 space-y-4" onSubmit={handleSaveEdit}>
             <Input
               label="Amount"
               name="amount"
@@ -833,8 +768,8 @@ const Transactions = () => {
               onChange={handleEditField}
             />
 
-            <div className="grid grid-cols-2 gap-3">
-              <label className="theme-muted-text space-y-1 text-sm font-medium">
+            <div className="grid min-w-0 grid-cols-2 gap-3">
+              <label className="theme-muted-text min-w-0 space-y-1 text-sm font-medium">
                 <span>Type</span>
                 <select
                   name="type"
@@ -846,7 +781,7 @@ const Transactions = () => {
                   <option value="income">Income</option>
                 </select>
               </label>
-              <label className="theme-muted-text space-y-1 text-sm font-medium">
+              <label className="theme-muted-text min-w-0 space-y-1 text-sm font-medium">
                 <span>Payment</span>
                 <select
                   name="paymentMethod"
@@ -905,118 +840,13 @@ const Transactions = () => {
         ) : null}
       </Modal>
 
-      <Modal
+      <AddTransactionModal
         isOpen={isAddModalOpen}
         onClose={closeAddTransaction}
-        title={isVoiceAdd ? "Add Voice Expense" : "Add Transaction"}
-        isDismissable={!isSavingAdd}
-        className="max-h-[90vh] overflow-y-auto"
-      >
-        <form className="space-y-4" onSubmit={handleAddTransaction}>
-          <Input
-            label="Amount"
-            name="amount"
-            type="number"
-            inputMode="decimal"
-            min="0.01"
-            step="0.01"
-            required
-            autoFocus
-            value={addForm.amount}
-            onChange={handleAddField}
-          />
-          <Input
-            label="Date and time"
-            name="datetime"
-            type="datetime-local"
-            required
-            value={addForm.datetime}
-            onChange={handleAddField}
-          />
-
-          <div className="grid grid-cols-2 gap-3">
-            <label className="theme-muted-text space-y-1 text-sm font-medium">
-              <span>Type</span>
-              <select
-                name="type"
-                value={addForm.type}
-                onChange={handleAddField}
-                disabled={isVoiceAdd}
-                className="theme-input w-full rounded-lg border px-3 py-2 text-sm"
-              >
-                <option value="expense">Expense</option>
-                <option value="income">Income</option>
-              </select>
-            </label>
-            <label className="theme-muted-text space-y-1 text-sm font-medium">
-              <span>Payment</span>
-              <select
-                name="paymentMethod"
-                value={addForm.paymentMethod}
-                onChange={handleAddField}
-                disabled={isVoiceAdd}
-                className="theme-input w-full rounded-lg border px-3 py-2 text-sm"
-              >
-                <option value="cash">Cash</option>
-                <option value="upi">UPI</option>
-              </select>
-            </label>
-          </div>
-
-          <Input
-            label="Person"
-            name="person"
-            value={addForm.person}
-            onChange={handleAddField}
-            disabled={isVoiceAdd}
-          />
-
-          <label className="theme-muted-text block space-y-1 text-sm font-medium">
-            <span>Category</span>
-            <select
-              name="category"
-              value={addForm.category}
-              onChange={handleAddField}
-              className="theme-input w-full rounded-lg border px-3 py-2 text-sm"
-            >
-              {transactionCategories.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="theme-muted-text block space-y-1 text-sm font-medium">
-            <span>Note</span>
-            <textarea
-              name="note"
-              rows="3"
-              value={addForm.note}
-              onChange={handleAddField}
-              className="theme-input w-full resize-none rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2"
-            />
-          </label>
-
-          {addFormError ? (
-            <p className="text-sm text-red-600 dark:text-red-400">{addFormError}</p>
-          ) : null}
-
-          <div className="flex justify-end gap-2 pt-1">
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={isSavingAdd}
-              onClick={closeAddTransaction}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isSavingAdd}>
-              {isSavingAdd ? "Saving..." : "Save transaction"}
-            </Button>
-          </div>
-        </form>
-      </Modal>
+        forceExpense={isVoiceAdd}
+        initialTransaction={addInitialTransaction}
+        onSaved={handleAddTransactionSaved}
+      />
     </div>
   )
 }

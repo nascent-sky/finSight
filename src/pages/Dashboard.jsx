@@ -3,7 +3,6 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   PieChart,
-  Plus,
   TrendingUp,
 } from "lucide-react"
 
@@ -12,13 +11,11 @@ import Button from "../components/ui/Button"
 import AISuggestions from "../components/common/AISuggestions"
 import SmartAIAdvisor from "../components/common/SmartAIAdvisor"
 import LifestyleExpenseTracker from "../components/common/LifestyleExpenseTracker"
-import QuickAddExpenseModal from "../components/common/QuickAddExpenseModal"
 import useExpenseTransactions from "../hooks/useExpenseTransactions"
 import settingsService from "../services/settingsService"
 
 const Dashboard = () => {
-  const expenses = useExpenseTransactions()
-  const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false)
+  const { expenses, isSampleData } = useExpenseTransactions()
   const initialSettings = settingsService.getSettings()
   const [monthlyIncome, setMonthlyIncome] = useState(Number(initialSettings.monthlyIncome) || 0)
   const [riskTolerance, setRiskTolerance] = useState(initialSettings.riskTolerance)
@@ -58,6 +55,12 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6">
+      {isSampleData && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
+          <span className="font-semibold">Showing sample data.</span>{" "}
+          Add your first expense to see your own insights.
+        </div>
+      )}
       <div className="theme-hero rounded-2xl p-6 shadow-lg">
         <h1 className="text-3xl font-bold">Welcome Back!</h1>
         <p className="mt-2 opacity-90">
@@ -124,11 +127,7 @@ const Dashboard = () => {
         </Card>
       </section>
 
-      <section className="flex flex-wrap items-center gap-3">
-        <Button onClick={() => setIsAddExpenseOpen(true)} className="flex items-center gap-2">
-          <Plus size={16} />
-          Add Expense
-        </Button>
+      <section className="hidden flex-wrap items-center gap-3 md:flex">
         <Button variant="secondary">View Analytics</Button>
         <Button variant="secondary">Set Goals</Button>
       </section>
@@ -184,11 +183,6 @@ const Dashboard = () => {
       </section>
 
       <LifestyleExpenseTracker />
-
-      <QuickAddExpenseModal
-        isOpen={isAddExpenseOpen}
-        onClose={() => setIsAddExpenseOpen(false)}
-      />
     </div>
   )
 }

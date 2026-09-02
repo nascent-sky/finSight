@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react"
 import { BrowserRouter, Route, Routes } from "react-router-dom"
 import { onAuthStateChanged } from "firebase/auth"
+import { Plus } from "lucide-react"
 
 import Sidebar from "./components/layout/Sidebar"
 import Header from "./components/layout/Header"
 import BottomNav from "./components/layout/BottomNav"
 import QuickAddExpenseModal from "./components/common/QuickAddExpenseModal"
 import ExpenseWidget from "./components/common/ExpenseWidget"
+import AddTransactionModal from "./components/transactions/AddTransactionModal"
+import { ToastContainer } from "./components/common/Toast"
 import { ExpensesContext } from "./context/ExpensesContext"
 import { ThemeContext } from "./context/ThemeContext"
 import {
@@ -45,6 +48,7 @@ import {
   subscribeToExpenses,
   updateExpense as editExpense,
 } from "./services/dataService"
+import { showToast } from "./utils/toastStore"
 
 const getSystemMode = () => {
   if (typeof window === "undefined") return "light"
@@ -65,28 +69,49 @@ const AuthLayout = ({
   onAddClick,
   isQuickAddOpen,
   setIsQuickAddOpen,
+  showLegacyExpenseActions = false,
+  onLegacyAddClick,
+  isLegacyQuickAddOpen,
+  setIsLegacyQuickAddOpen,
+  showGlobalAddAction = false,
 }) => (
-  <div className="theme-shell flex min-h-screen">
+  <div className="theme-shell flex min-h-screen w-full min-w-0">
     <Sidebar
       isOpen={isSidebarOpen}
       onClose={() => setIsSidebarOpen(false)}
       user={user}
     />
-    <div className="flex flex-1 flex-col md:ml-64">
+    <div className="flex w-full min-w-0 flex-1 flex-col md:ml-64">
       <Header
         title="FinSight"
         onMenuClick={() => setIsSidebarOpen(true)}
-        onAddClick={onAddClick}
+        onAddClick={showLegacyExpenseActions ? onLegacyAddClick : undefined}
       />
-      <main className="theme-shell flex-1 overflow-y-auto p-4 pb-20 md:pb-4">
+      <main className="theme-shell w-full min-w-0 flex-1 overflow-y-auto p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-4">
         {children}
       </main>
       <BottomNav onAddClick={onAddClick} />
     </div>
-    <ExpenseWidget />
-    <QuickAddExpenseModal
+    {showGlobalAddAction ? (
+      <button
+        type="button"
+        aria-label="Add transaction"
+        onClick={onAddClick}
+        className="theme-button-primary fixed bottom-6 right-6 z-30 hidden h-14 w-14 items-center justify-center rounded-full shadow-xl md:flex"
+      >
+        <Plus size={26} />
+      </button>
+    ) : null}
+    {!showLegacyExpenseActions ? <ToastContainer /> : null}
+    {showLegacyExpenseActions ? <ExpenseWidget /> : null}
+    {showLegacyExpenseActions ? <QuickAddExpenseModal
+      isOpen={isLegacyQuickAddOpen}
+      onClose={() => setIsLegacyQuickAddOpen(false)}
+    /> : null}
+    <AddTransactionModal
       isOpen={isQuickAddOpen}
       onClose={() => setIsQuickAddOpen(false)}
+      onSaved={() => showToast("Transaction added.", "success", 3000)}
     />
   </div>
 )
@@ -94,6 +119,7 @@ const AuthLayout = ({
 function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false)
+  const [isLegacyQuickAddOpen, setIsLegacyQuickAddOpen] = useState(false)
   const [user, setUser] = useState(null)
   const [isAuthReady, setIsAuthReady] = useState(false)
   const [systemMode, setSystemMode] = useState(getSystemMode)
@@ -292,6 +318,10 @@ function App() {
     setIsQuickAddOpen(true)
   }
 
+  const handleLegacyQuickAddExpense = () => {
+    setIsLegacyQuickAddOpen(true)
+  }
+
   const runExpenseMutation = async (mutation) => {
     if (user?.uid && !isOnline && !persistenceState.enabled) {
       const message =
@@ -365,6 +395,7 @@ function App() {
                   onAddClick={handleQuickAddExpense}
                   isQuickAddOpen={isQuickAddOpen}
                   setIsQuickAddOpen={setIsQuickAddOpen}
+                  showGlobalAddAction
                 >
                   <Dashboard />
                 </AuthLayout>
@@ -380,6 +411,7 @@ function App() {
                   onAddClick={handleQuickAddExpense}
                   isQuickAddOpen={isQuickAddOpen}
                   setIsQuickAddOpen={setIsQuickAddOpen}
+                  showGlobalAddAction
                 >
                   <Transactions />
                 </AuthLayout>
@@ -395,6 +427,10 @@ function App() {
                   onAddClick={handleQuickAddExpense}
                   isQuickAddOpen={isQuickAddOpen}
                   setIsQuickAddOpen={setIsQuickAddOpen}
+                  showLegacyExpenseActions
+                  onLegacyAddClick={handleLegacyQuickAddExpense}
+                  isLegacyQuickAddOpen={isLegacyQuickAddOpen}
+                  setIsLegacyQuickAddOpen={setIsLegacyQuickAddOpen}
                 >
                   <Expenses />
                 </AuthLayout>
@@ -410,6 +446,7 @@ function App() {
                   onAddClick={handleQuickAddExpense}
                   isQuickAddOpen={isQuickAddOpen}
                   setIsQuickAddOpen={setIsQuickAddOpen}
+                  showGlobalAddAction
                 >
                   <Analytics />
                 </AuthLayout>
@@ -425,6 +462,7 @@ function App() {
                   onAddClick={handleQuickAddExpense}
                   isQuickAddOpen={isQuickAddOpen}
                   setIsQuickAddOpen={setIsQuickAddOpen}
+                  showGlobalAddAction
                 >
                   <Categories />
                 </AuthLayout>

@@ -48,10 +48,12 @@ const Header = ({ title, onMenuClick, onAddClick }) => {
           </div>
         ) : null}
 
-        <Button size="sm" className="flex items-center gap-1" onClick={onAddClick}>
-          <Plus size={16} />
-          <span className="hidden sm:inline">Add</span>
-        </Button>
+        {onAddClick ? (
+          <Button size="sm" className="flex items-center gap-1" onClick={onAddClick}>
+            <Plus size={16} />
+            <span className="hidden sm:inline">Add</span>
+          </Button>
+        ) : null}
       </div>
     </header>
   )

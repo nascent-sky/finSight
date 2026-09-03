@@ -19,6 +19,8 @@ import {
   Tag,
   Trash2,
   Utensils,
+  Upload,
+  UserRoundMinus,
   WalletCards,
 } from "lucide-react"
 
@@ -34,6 +36,7 @@ import {
   isIncomeSource,
   normalizeIncomeSourcePerson,
   rememberIncomeSource,
+  removeIncomeSource,
   subscribeToIncomeSources,
 } from "../services/incomeSourceService"
 import {
@@ -130,7 +133,8 @@ const TransactionRow = ({
 
   const handlePointerStart = (event) => {
     if (isReadOnly) return
-    if (event.pointerType === "mouse" && event.button !== 0) return
+    if (!['touch', 'pen'].includes(event.pointerType)) return
+    if (event.target.closest?.("button, a, input, select, textarea, label")) return
 
     event.currentTarget.setPointerCapture?.(event.pointerId)
     pointerState.current = {
@@ -236,6 +240,12 @@ const TransactionRow = ({
             <span className="min-w-0 truncate">{formatDatetime(transaction.datetime)}</span>
             <span aria-hidden="true">·</span>
             <span className="uppercase">{transaction.paymentMethod}</span>
+            {transaction.pending ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>Pending sync</span>
+              </>
+            ) : null}
           </div>
         </div>
 
@@ -310,6 +320,8 @@ const Transactions = () => {
   const [areTransactionsLoading, setAreTransactionsLoading] = useState(true)
   const [areIncomeSourcesLoading, setAreIncomeSourcesLoading] = useState(true)
   const [rememberingPerson, setRememberingPerson] = useState("")
+  const [removingIncomeSource, setRemovingIncomeSource] = useState("")
+  const [isIncomeSourcesModalOpen, setIsIncomeSourcesModalOpen] = useState(false)
   const [openSwipeId, setOpenSwipeId] = useState(null)
   const [openDesktopMenuId, setOpenDesktopMenuId] = useState(null)
   const [editingTransaction, setEditingTransaction] = useState(null)
@@ -348,6 +360,7 @@ const Transactions = () => {
       )
 
       if (!user) {
+        setIsIncomeSourcesModalOpen(false)
         setAreIncomeSourcesLoading(false)
         return
       }
@@ -444,7 +457,7 @@ const Transactions = () => {
     [],
   )
   const isShowingSampleData = !isLoading && !error &&
-    !transactions.some((transaction) => transaction.type === "expense")
+    transactions.length === 0
 
   const visibleTransactions = useMemo(
     () => {
@@ -479,6 +492,23 @@ const Transactions = () => {
       setError(rememberError?.message || "Could not remember this income source.")
     } finally {
       setRememberingPerson("")
+    }
+  }
+
+  const handleRemoveIncomeSource = async (person) => {
+    const normalizedPerson = normalizeIncomeSourcePerson(person)
+    if (!normalizedPerson || removingIncomeSource) return
+
+    setRemovingIncomeSource(normalizedPerson)
+    setError("")
+
+    try {
+      await removeIncomeSource(person)
+      setFeedback({ type: "success", message: "Income source removed." })
+    } catch (removeError) {
+      setError(removeError?.message || "Could not remove this income source.")
+    } finally {
+      setRemovingIncomeSource("")
     }
   }
 
@@ -636,8 +666,44 @@ const Transactions = () => {
         })}
       </div>
 
-      <div className="flex w-full min-w-0 justify-end">
-        <div className="relative min-w-0">
+      <div
+        className={`flex w-full min-w-0 gap-2 md:flex-row md:flex-wrap md:items-center md:justify-between ${
+          activeTab === "income"
+            ? "flex-col items-stretch"
+            : "flex-row items-center justify-between"
+        }`}
+      >
+        <div
+          className={`flex min-w-0 flex-nowrap gap-2 md:w-auto md:flex-wrap ${
+            activeTab === "income" ? "w-full" : "w-auto"
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => navigate("/transactions-import")}
+            className="theme-card theme-text flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border px-2 py-2 text-xs font-semibold transition-colors hover:bg-gray-100 md:gap-2 md:px-3 md:text-sm dark:hover:bg-gray-800"
+          >
+            <Upload className="h-4 w-4 md:h-[18px] md:w-[18px]" />
+            Import GPay
+          </button>
+          {activeTab === "income" && auth.currentUser?.uid ? (
+            <button
+              type="button"
+              onClick={() => setIsIncomeSourcesModalOpen(true)}
+              className="theme-card theme-text flex min-w-0 items-center gap-1.5 whitespace-nowrap rounded-xl border px-2 py-2 text-xs font-semibold transition-colors hover:bg-gray-100 md:gap-2 md:px-3 md:text-sm dark:hover:bg-gray-800"
+            >
+              <UserRoundMinus className="h-4 w-4 shrink-0 md:h-[18px] md:w-[18px]" />
+              Manage Income Sources
+            </button>
+          ) : null}
+        </div>
+        <div
+          className={`relative min-w-0 md:ml-auto md:block md:w-auto ${
+            activeTab === "income"
+              ? "flex w-full justify-end"
+              : "ml-auto w-auto"
+          }`}
+        >
           <button
             type="button"
             aria-label="Filter transactions"
@@ -739,6 +805,47 @@ const Transactions = () => {
           {feedback.message}
         </div>
       ) : null}
+
+      <Modal
+        isOpen={isIncomeSourcesModalOpen}
+        onClose={() => {
+          if (!removingIncomeSource) setIsIncomeSourcesModalOpen(false)
+        }}
+        title="Income Sources"
+        isDismissable={!removingIncomeSource}
+      >
+        {incomeSources.length === 0 ? (
+          <p className="theme-muted-text text-sm">
+            No remembered income sources yet. Use Move to income on an incoming transaction.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {incomeSources.map((source) => {
+              const isRemoving = removingIncomeSource ===
+                normalizeIncomeSourcePerson(source.person)
+
+              return (
+                <li
+                  key={source.id}
+                  className="theme-panel flex min-w-0 items-center justify-between gap-3 rounded-xl px-3 py-2"
+                >
+                  <span className="theme-text min-w-0 truncate text-sm font-medium">
+                    {source.person}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={Boolean(removingIncomeSource)}
+                    onClick={() => handleRemoveIncomeSource(source.person)}
+                    className="shrink-0 text-sm font-semibold text-red-600 hover:underline disabled:cursor-wait disabled:opacity-60 dark:text-red-400"
+                  >
+                    {isRemoving ? "Removing..." : "Remove"}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </Modal>
 
       <Modal
         isOpen={Boolean(editingTransaction && editForm)}

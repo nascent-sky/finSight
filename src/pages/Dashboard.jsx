@@ -15,9 +15,8 @@ import useExpenseTransactions from "../hooks/useExpenseTransactions"
 import settingsService from "../services/settingsService"
 
 const Dashboard = () => {
-  const { expenses, isSampleData } = useExpenseTransactions()
+  const { expenses, isSampleData, transactions } = useExpenseTransactions()
   const initialSettings = settingsService.getSettings()
-  const [monthlyIncome, setMonthlyIncome] = useState(Number(initialSettings.monthlyIncome) || 0)
   const [riskTolerance, setRiskTolerance] = useState(initialSettings.riskTolerance)
 
   const totalExpenses = expenses.reduce(
@@ -25,8 +24,11 @@ const Dashboard = () => {
     0,
   )
   const recentExpenses = expenses.slice(0, 5)
+  const totalIncome = transactions
+    .filter((transaction) => transaction.type === "income")
+    .reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0)
   const financialData = {
-    monthlyIncome,
+    monthlyIncome: totalIncome,
     totalExpenses,
     expenses,
     savingsGoal: 5000,
@@ -42,7 +44,6 @@ const Dashboard = () => {
       const { settings } = event.detail || {}
       if (!settings) return
 
-      setMonthlyIncome(Number(settings.monthlyIncome) || 0)
       setRiskTolerance(settings.riskTolerance)
     }
 

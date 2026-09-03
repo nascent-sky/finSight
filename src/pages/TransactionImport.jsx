@@ -4,7 +4,7 @@ import { FileText, Tag, Upload } from "lucide-react"
 import Card from "../components/ui/Card"
 import { useTheme } from "../context/ThemeContext"
 import { parseGooglePayStatement } from "../services/gpayStatementParser"
-import { addTransactionWithId } from "../services/transactionService"
+import { saveImportedTransactionWithId } from "../services/transactionService"
 
 const formatAmount = (amount) =>
   Number(amount).toLocaleString("en-IN", { maximumFractionDigits: 2 })
@@ -114,12 +114,12 @@ const TransactionImport = () => {
   }
 
   const handleImport = async () => {
-    if (!user?.uid || !result?.transactions.length || isImporting) return
+    if (!result?.transactions.length || isImporting) return
 
     setIsImporting(true)
     setImportResult(null)
     setError("")
-    const counts = { imported: 0, duplicates: 0, failed: 0 }
+    const counts = { imported: 0, duplicates: 0, failed: 0, pending: 0 }
 
     for (const transaction of result.transactions) {
       try {
@@ -127,13 +127,14 @@ const TransactionImport = () => {
           throw new Error("The transaction does not have a UPI transaction ID.")
         }
 
-        const savedTransaction = await addTransactionWithId(
+        const savedTransaction = await saveImportedTransactionWithId(
           `gpay_${transaction.upiTransactionId}`,
           transaction,
         )
 
         if (savedTransaction.created) {
           counts.imported += 1
+          if (savedTransaction.pending) counts.pending += 1
         } else {
           counts.duplicates += 1
         }
@@ -220,21 +221,18 @@ const TransactionImport = () => {
             <div className="flex flex-col items-stretch gap-3 sm:items-end">
               <button
                 type="button"
-                disabled={isImporting || !user?.uid}
+                disabled={isImporting}
                 onClick={handleImport}
-                aria-describedby={!user?.uid ? "import-sign-in-message" : undefined}
                 className="theme-button-primary rounded-lg px-5 py-2.5 text-sm font-semibold disabled:cursor-wait disabled:opacity-60"
               >
-                {!user?.uid
-                  ? "Sign in to import"
-                  : isImporting
+                {isImporting
                   ? "Importing Transactions..."
                   : `Import ${result.transactions.length} Transactions`}
               </button>
 
               {!user?.uid ? (
-                <p id="import-sign-in-message" className="theme-muted-text text-sm">
-                  Sign in to save these transactions to your FinSight account.
+                <p className="theme-muted-text text-sm">
+                  Guest imports are saved on this device and can be merged after sign-in.
                 </p>
               ) : null}
 
@@ -248,6 +246,11 @@ const TransactionImport = () => {
                     <p><strong className="theme-text block">{importResult.duplicates}</strong> already imported</p>
                     <p><strong className="theme-text block">{importResult.failed}</strong> failed</p>
                   </div>
+                  {importResult.pending > 0 ? (
+                    <p className="theme-muted-text mt-3 text-xs">
+                      {importResult.pending} saved on this device and waiting to sync.
+                    </p>
+                  ) : null}
                 </Card>
               ) : null}
             </div>

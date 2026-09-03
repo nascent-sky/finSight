@@ -268,11 +268,12 @@ export const parseGooglePayStatement = async (file) => {
     throw new Error("Select a valid PDF file.")
   }
 
-  const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist")
-  GlobalWorkerOptions.workerSrc = pdfWorkerUrl
-  const loadingTask = getDocument({ data: await file.arrayBuffer() })
+  let loadingTask
 
   try {
+    const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist")
+    GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+    loadingTask = getDocument({ data: await file.arrayBuffer() })
     const pdf = await loadingTask.promise
     const lines = []
 
@@ -287,8 +288,24 @@ export const parseGooglePayStatement = async (file) => {
       throw error
     }
 
-    throw new Error("The PDF could not be read. It may be damaged or password-protected.")
+    const errorName = String(error?.name || "")
+    const errorMessage = String(error?.message || "")
+
+    if (errorName === "PasswordException" || /password/i.test(errorMessage)) {
+      throw new Error("This PDF is password-protected and cannot be imported.")
+    }
+
+    if (
+      /worker|failed to fetch|dynamically imported module|networkerror|loading chunk/i
+        .test(`${errorName} ${errorMessage}`)
+    ) {
+      throw new Error(
+        "The local PDF parser is unavailable. Reopen FinSight while online once, then try again.",
+      )
+    }
+
+    throw new Error("This PDF could not be read.")
   } finally {
-    await loadingTask.destroy()
+    await loadingTask?.destroy()
   }
 }

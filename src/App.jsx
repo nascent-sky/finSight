@@ -49,6 +49,7 @@ import {
   updateExpense as editExpense,
 } from "./services/dataService"
 import { showToast } from "./utils/toastStore"
+import { syncPendingTransactions } from "./services/transactionService"
 
 const getSystemMode = () => {
   if (typeof window === "undefined") return "light"
@@ -176,6 +177,14 @@ function App() {
       window.removeEventListener("offline", updateOnlineState)
     }
   }, [])
+
+  useEffect(() => {
+    if (!isAuthReady || !user?.uid || !isOnline) return
+
+    syncPendingTransactions(user).catch((error) => {
+      console.error("Failed to retry pending transaction imports", error)
+    })
+  }, [isAuthReady, isOnline, user])
 
   useEffect(() => {
     return subscribeToFirestorePersistenceState((nextState) => {

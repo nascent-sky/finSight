@@ -1,4 +1,4 @@
-import { collection, doc, onSnapshot, setDoc } from "firebase/firestore"
+import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore"
 
 import { auth, db } from "../firebase"
 
@@ -38,6 +38,20 @@ export const rememberIncomeSource = async (person) => {
   await setDoc(doc(db, "users", user.uid, "incomeSources", sourceId), {
     person: normalizedPerson,
   })
+
+  return { id: sourceId, person: normalizedPerson }
+}
+
+export const removeIncomeSource = async (person) => {
+  const user = requireUser()
+  const normalizedPerson = normalizeIncomeSourcePerson(person)
+
+  if (!normalizedPerson) {
+    throw new Error("An income source must have a person name.")
+  }
+
+  const sourceId = encodeURIComponent(normalizedPerson)
+  await deleteDoc(doc(db, "users", user.uid, "incomeSources", sourceId))
 
   return { id: sourceId, person: normalizedPerson }
 }

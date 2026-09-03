@@ -12,6 +12,14 @@ import {
 } from "firebase/firestore"
 
 import { auth, db } from "../firebase"
+import {
+  addPendingTransaction,
+  deletePendingTransaction,
+  getPendingTransaction,
+  getPendingTransactions,
+  subscribeToPendingTransactions,
+  updatePendingTransaction,
+} from "./pendingTransactionService"
 
 export const GUEST_TRANSACTIONS_STORAGE_KEY = "finsight_guest_transactions_v1"
 export const TRANSACTIONS_CHANGED_EVENT = "transactionsChanged"
@@ -27,6 +35,16 @@ const requireUser = () => {
 }
 
 const transactionsCollection = (uid) => collection(db, "users", uid, "transactions")
+
+const validateTransactionId = (id) => {
+  const transactionId = String(id ?? "").trim()
+
+  if (!transactionId || transactionId.includes("/")) {
+    throw new Error("A valid transaction document ID is required.")
+  }
+
+  return transactionId
+}
 
 const generateGuestTransactionId = () => {
   if (globalThis.crypto?.randomUUID) {
@@ -156,17 +174,25 @@ export const addTransaction = async (transaction) => {
   return { id: reference.id, ...normalized }
 }
 
-export const addTransactionWithId = async (id, transaction) => {
-  const user = requireUser()
-  const transactionId = String(id ?? "").trim()
-
-  if (!transactionId || transactionId.includes("/")) {
-    throw new Error("A valid transaction document ID is required.")
-  }
-
+export const addGuestTransactionWithId = async (id, transaction) => {
+  const transactionId = validateTransactionId(id)
   const normalized = normalizeTransaction(transaction)
-  const reference = doc(db, "users", user.uid, "transactions", transactionId)
-  const created = await runTransaction(db, async (firestoreTransaction) => {
+  const guestTransactions = getGuestTransactions()
+  const existing = guestTransactions.find((item) => item.id === transactionId)
+
+  if (existing) return { ...existing, created: false }
+
+  const savedTransaction = { id: transactionId, ...normalized }
+  writeGuestTransactionRecords(sortTransactions([savedTransaction, ...guestTransactions]))
+  emitGuestTransactionsChanged("add", { transaction: savedTransaction })
+
+  return { ...savedTransaction, created: true }
+}
+
+const createTransactionIfMissing = async (uid, id, normalized) => {
+  const reference = doc(db, "users", uid, "transactions", id)
+
+  return runTransaction(db, async (firestoreTransaction) => {
     const snapshot = await firestoreTransaction.get(reference)
 
     if (snapshot.exists()) return false
@@ -174,8 +200,104 @@ export const addTransactionWithId = async (id, transaction) => {
     firestoreTransaction.set(reference, normalized)
     return true
   })
+}
+
+export const addTransactionWithId = async (id, transaction) => {
+  const user = requireUser()
+  const transactionId = validateTransactionId(id)
+  const normalized = normalizeTransaction(transaction)
+  const created = await createTransactionIfMissing(user.uid, transactionId, normalized)
 
   return { id: transactionId, ...normalized, created }
+}
+
+const isOfflineFirestoreError = (error) => {
+  const code = String(error?.code || "").replace("firestore/", "")
+
+  return [
+    "aborted",
+    "deadline-exceeded",
+    "network-request-failed",
+    "unavailable",
+  ].includes(code)
+}
+
+const queueAuthenticatedTransaction = async (uid, id, normalized) => {
+  const result = await addPendingTransaction(uid, id, normalized)
+
+  return {
+    id,
+    ...normalized,
+    created: result.created,
+    pending: true,
+    storage: "indexeddb",
+  }
+}
+
+export const saveImportedTransactionWithId = async (id, transaction) => {
+  const transactionId = validateTransactionId(id)
+  const normalized = normalizeTransaction(transaction)
+  const user = auth.currentUser
+
+  if (!user?.uid) {
+    const saved = await addGuestTransactionWithId(transactionId, normalized)
+    return { ...saved, storage: "guest" }
+  }
+
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    return queueAuthenticatedTransaction(user.uid, transactionId, normalized)
+  }
+
+  try {
+    const saved = await addTransactionWithId(transactionId, normalized)
+    return { ...saved, pending: false, storage: "firestore" }
+  } catch (error) {
+    if (!isOfflineFirestoreError(error)) throw error
+    return queueAuthenticatedTransaction(user.uid, transactionId, normalized)
+  }
+}
+
+let pendingSync = null
+
+export const syncPendingTransactions = async (user = auth.currentUser) => {
+  const currentUser = user ?? auth.currentUser
+  if (!currentUser?.uid) return { synced: 0, duplicates: 0, failed: 0 }
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    return { synced: 0, duplicates: 0, failed: 0 }
+  }
+  if (pendingSync?.uid === currentUser.uid) return pendingSync.promise
+
+  const promise = (async () => {
+    const records = await getPendingTransactions(currentUser.uid)
+    const counts = { synced: 0, duplicates: 0, failed: 0 }
+
+    for (const record of records) {
+      if (auth.currentUser?.uid !== currentUser.uid) break
+
+      try {
+        const created = await createTransactionIfMissing(
+          currentUser.uid,
+          validateTransactionId(record.id),
+          normalizeTransaction(record.transaction),
+        )
+        await deletePendingTransaction(currentUser.uid, record.id)
+        counts[created ? "synced" : "duplicates"] += 1
+      } catch (error) {
+        console.error("Failed to sync a pending transaction", error)
+        counts.failed += 1
+      }
+    }
+
+    return counts
+  })()
+
+  pendingSync = { uid: currentUser.uid, promise }
+
+  try {
+    return await promise
+  } finally {
+    if (pendingSync?.promise === promise) pendingSync = null
+  }
 }
 
 export const mergeGuestTransactionsIntoAccount = async (user = auth.currentUser) => {
@@ -192,15 +314,7 @@ export const mergeGuestTransactionsIntoAccount = async (user = auth.currentUser)
   for (const transaction of guestTransactions) {
     try {
       const normalized = normalizeTransaction(transaction)
-      const reference = doc(
-        db,
-        "users",
-        currentUser.uid,
-        "transactions",
-        transaction.id,
-      )
-
-      await setDoc(reference, normalized)
+      await createTransactionIfMissing(currentUser.uid, transaction.id, normalized)
 
       const remainingTransactions = getGuestTransactions().filter(
         (guestTransaction) => guestTransaction.id !== transaction.id,
@@ -263,13 +377,59 @@ export const subscribeToTransactions = (callback, errorCallback) => {
     orderBy("datetime", "desc"),
   )
 
-  return onSnapshot(
+  let firestoreTransactions = []
+  let pendingTransactions = []
+  let isActive = true
+
+  const publish = () => {
+    if (!isActive || typeof callback !== "function") return
+
+    const combined = new Map()
+    pendingTransactions.forEach((record) => {
+      combined.set(record.id, {
+        id: record.id,
+        ...record.transaction,
+        pending: true,
+      })
+    })
+    firestoreTransactions.forEach((transaction) => {
+      combined.set(transaction.id, transaction)
+    })
+    callback(sortTransactions([...combined.values()]))
+  }
+
+  const refreshPendingTransactions = async () => {
+    try {
+      pendingTransactions = await getPendingTransactions(user.uid)
+      publish()
+    } catch (error) {
+      if (isActive) errorCallback?.(error)
+    }
+  }
+
+  const unsubscribePending = subscribeToPendingTransactions(
+    user.uid,
+    refreshPendingTransactions,
+  )
+  void refreshPendingTransactions()
+
+  const unsubscribeFirestore = onSnapshot(
     transactionsQuery,
     (snapshot) => {
-      callback(snapshot.docs.map((document) => ({ id: document.id, ...document.data() })))
+      firestoreTransactions = snapshot.docs.map((document) => ({
+        id: document.id,
+        ...document.data(),
+      }))
+      publish()
     },
     errorCallback,
   )
+
+  return () => {
+    isActive = false
+    unsubscribePending()
+    unsubscribeFirestore()
+  }
 }
 
 export const updateTransaction = async (id, updates) => {
@@ -296,6 +456,16 @@ export const updateTransaction = async (id, updates) => {
     writeGuestTransactionRecords(sortTransactions(nextTransactions))
     emitGuestTransactionsChanged("update", { transaction: savedTransaction })
     return savedTransaction
+  }
+
+  const pendingRecord = await getPendingTransaction(user.uid, transactionId)
+  if (pendingRecord) {
+    const normalized = normalizeTransaction({
+      ...pendingRecord.transaction,
+      ...updates,
+    })
+    await updatePendingTransaction(user.uid, transactionId, normalized)
+    return { id: transactionId, ...normalized, pending: true }
   }
 
   const reference = doc(db, "users", user.uid, "transactions", transactionId)
@@ -327,6 +497,12 @@ export const deleteTransaction = async (id) => {
 
     writeGuestTransactionRecords(nextTransactions)
     emitGuestTransactionsChanged("delete", { id: transactionId })
+    return true
+  }
+
+  const pendingRecord = await getPendingTransaction(user.uid, transactionId)
+  if (pendingRecord) {
+    await deletePendingTransaction(user.uid, transactionId)
     return true
   }
 

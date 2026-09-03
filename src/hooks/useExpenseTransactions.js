@@ -11,7 +11,7 @@ const toExpenseRecord = (transaction) => ({
 })
 
 const useExpenseTransactions = () => {
-  const [expenses, setExpenses] = useState([])
+  const [transactions, setTransactions] = useState([])
   const [hasResolved, setHasResolved] = useState(false)
 
   useEffect(() => {
@@ -19,21 +19,16 @@ const useExpenseTransactions = () => {
 
     const unsubscribeAuth = onAuthStateChanged(auth, () => {
       unsubscribeTransactions()
-      setExpenses([])
+      setTransactions([])
       setHasResolved(false)
 
       unsubscribeTransactions = subscribeToTransactions(
-        (transactions) => {
-          setExpenses(
-            transactions
-              .filter((transaction) => transaction.type === "expense")
-              .map(toExpenseRecord),
-          )
+        (nextTransactions) => {
+          setTransactions(nextTransactions)
           setHasResolved(true)
         },
         () => {
-          setExpenses([])
-          setHasResolved(false)
+          setHasResolved(true)
         },
       )
     })
@@ -44,7 +39,13 @@ const useExpenseTransactions = () => {
     }
   }, [])
 
-  const isSampleData = hasResolved && expenses.length === 0
+  const expenses = useMemo(
+    () => transactions
+      .filter((transaction) => transaction.type === "expense")
+      .map(toExpenseRecord),
+    [transactions],
+  )
+  const isSampleData = hasResolved && transactions.length === 0
   const visibleExpenses = useMemo(() => {
     if (!isSampleData) return expenses
 
@@ -56,7 +57,7 @@ const useExpenseTransactions = () => {
     )
   }, [expenses, isSampleData])
 
-  return { expenses: visibleExpenses, isSampleData }
+  return { expenses: visibleExpenses, isSampleData, transactions }
 }
 
 export default useExpenseTransactions

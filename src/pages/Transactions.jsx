@@ -30,6 +30,8 @@ import Input from "../components/ui/Input"
 import Modal from "../components/ui/Modal"
 import VoiceRecorder from "../components/common/VoiceRecorder"
 import AddTransactionModal from "../components/transactions/AddTransactionModal"
+import CategorySelect from "../components/transactions/CategorySelect"
+import { normalizeTransactionCategory } from "../components/transactions/transactionCategories"
 import { auth } from "../firebase"
 import { parseExpenseFromTranscript } from "../hooks/useVoiceToExpense"
 import {
@@ -527,7 +529,7 @@ const Transactions = () => {
       type: transaction.type,
       person: transaction.person ?? "",
       paymentMethod: transaction.paymentMethod,
-      category: transaction.category || "Other",
+      category: normalizeTransactionCategory(transaction.category),
       note: transaction.note ?? "",
     })
   }
@@ -569,7 +571,7 @@ const Transactions = () => {
         type: editForm.type,
         person: editForm.person,
         paymentMethod: editForm.paymentMethod,
-        category: editForm.category.trim() || "Other",
+        category: normalizeTransactionCategory(editForm.category),
         note: editForm.note,
       })
       setEditingTransaction(null)
@@ -908,13 +910,17 @@ const Transactions = () => {
               value={editForm.person}
               onChange={handleEditField}
             />
-            <Input
-              label="Category"
-              name="category"
-              value={editForm.category}
-              onChange={handleEditField}
-              placeholder="Other"
-            />
+            {editForm.type === "expense" ? (
+              <CategorySelect value={editForm.category} onChange={handleEditField} />
+            ) : (
+              <Input
+                label="Category"
+                name="category"
+                value={editForm.category}
+                onChange={handleEditField}
+                placeholder="Other"
+              />
+            )}
             <label className="theme-muted-text block space-y-1 text-sm font-medium">
               <span>Note</span>
               <textarea

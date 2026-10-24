@@ -4,22 +4,8 @@ import { addTransaction } from "../../services/transactionService"
 import Button from "../ui/Button"
 import Input from "../ui/Input"
 import Modal from "../ui/Modal"
-
-const transactionCategories = [
-  "Other",
-  "Food & Dining",
-  "Transport",
-  "Shopping",
-  "Utilities",
-  "Entertainment",
-  "Subscription",
-  "Healthcare",
-  "Housing",
-  "Education",
-  "Travel",
-  "Gifts",
-  "Income",
-]
+import CategorySelect from "./CategorySelect"
+import { normalizeTransactionCategory } from "./transactionCategories"
 
 const toDatetimeLocal = (datetime) => {
   const date = new Date(datetime)
@@ -37,7 +23,7 @@ const createFormState = (initialTransaction, forceExpense) => ({
   paymentMethod: forceExpense
     ? "cash"
     : initialTransaction?.paymentMethod || "cash",
-  category: initialTransaction?.category || "Other",
+  category: normalizeTransactionCategory(initialTransaction?.category),
   note: initialTransaction?.note || "",
 })
 
@@ -76,7 +62,7 @@ const AddTransactionForm = ({ forceExpense, initialTransaction, onClose, onSaved
         type: forceExpense ? "expense" : form.type,
         person: forceExpense ? "" : form.person,
         paymentMethod: forceExpense ? "cash" : form.paymentMethod,
-        category: form.category || "Other",
+        category: normalizeTransactionCategory(form.category),
         note: form.note,
       })
       onSaved?.(savedTransaction)
@@ -155,19 +141,7 @@ const AddTransactionForm = ({ forceExpense, initialTransaction, onClose, onSaved
           disabled={forceExpense}
         />
 
-        <label className="theme-muted-text block space-y-1 text-sm font-medium">
-          <span>Category</span>
-          <select
-            name="category"
-            value={form.category}
-            onChange={handleField}
-            className="theme-input w-full rounded-lg border px-3 py-2 text-sm"
-          >
-            {transactionCategories.map((category) => (
-              <option key={category} value={category}>{category}</option>
-            ))}
-          </select>
-        </label>
+        <CategorySelect value={form.category} onChange={handleField} />
 
         <label className="theme-muted-text block space-y-1 text-sm font-medium">
           <span>Note</span>

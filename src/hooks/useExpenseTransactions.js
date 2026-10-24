@@ -13,6 +13,7 @@ const toExpenseRecord = (transaction) => ({
 const useExpenseTransactions = () => {
   const [transactions, setTransactions] = useState([])
   const [hasResolved, setHasResolved] = useState(false)
+  const [loadError, setLoadError] = useState("")
 
   useEffect(() => {
     let unsubscribeTransactions = () => {}
@@ -21,14 +22,17 @@ const useExpenseTransactions = () => {
       unsubscribeTransactions()
       setTransactions([])
       setHasResolved(false)
+      setLoadError("")
 
       unsubscribeTransactions = subscribeToTransactions(
         (nextTransactions) => {
           setTransactions(nextTransactions)
           setHasResolved(true)
+          setLoadError("")
         },
-        () => {
+        (error) => {
           setHasResolved(true)
+          setLoadError(error?.message || "Could not load transactions right now.")
         },
       )
     })
@@ -57,7 +61,7 @@ const useExpenseTransactions = () => {
     )
   }, [expenses, isSampleData])
 
-  return { expenses: visibleExpenses, isSampleData, transactions }
+  return { expenses: visibleExpenses, isSampleData, transactions, isReady: hasResolved, loadError }
 }
 
 export default useExpenseTransactions

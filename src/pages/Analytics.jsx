@@ -1,7 +1,13 @@
-import { useEffect, useState } from "react"
-import { BarChart3, PieChart as PieChartIcon } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { BarChart3 } from "lucide-react"
 
 import Card from "../components/ui/Card"
+import CategoryExpenseChart from "../components/analytics/CategoryExpenseChart"
+import {
+  getMonthKey,
+  getMonthLabel,
+  getMonthlyExpenseStats,
+} from "../components/analytics/expenseChartUtils"
 import InvestmentSimulator from "../components/common/InvestmentSimulator"
 import FinancialGoalPlanner from "../components/common/FinancialGoalPlanner"
 import WealthProjectionCalculator from "../components/common/WealthProjectionCalculator"
@@ -9,52 +15,11 @@ import useExpenseTransactions from "../hooks/useExpenseTransactions"
 import settingsService from "../services/settingsService"
 
 const Analytics = () => {
-  const { expenses, isSampleData } = useExpenseTransactions()
+  const { transactions, isReady, loadError } = useExpenseTransactions()
+  const [selectedMonth, setSelectedMonth] = useState(() => getMonthKey())
   const [monthlyIncome, setMonthlyIncome] = useState(
     Number(settingsService.getMonthlyIncome()) || 0,
   )
-
-  const calculateStats = (expenseList) => {
-    const today = new Date()
-    const currentMonth = today.getMonth()
-    const currentYear = today.getFullYear()
-
-    const monthExpenses = (expenseList || []).filter((expense) => {
-      const expenseDate = new Date(expense.datetime)
-      if (Number.isNaN(expenseDate.getTime())) return false
-
-      return (
-        expenseDate.getMonth() === currentMonth &&
-        expenseDate.getFullYear() === currentYear
-      )
-    })
-
-    const weeklyBreakdown = {
-      "Week 1 (1-7)": 0,
-      "Week 2 (8-14)": 0,
-      "Week 3 (15-21)": 0,
-      "Week 4+ (22+)": 0,
-    }
-
-    const categoryBreakdown = {}
-    let total = 0
-
-    monthExpenses.forEach((expense) => {
-      const day = new Date(expense.datetime).getDate() || 1
-      const amount = Number(expense.amount) || 0
-      const categoryName = expense.category || "Other"
-
-      if (day <= 7) weeklyBreakdown["Week 1 (1-7)"] += amount
-      else if (day <= 14) weeklyBreakdown["Week 2 (8-14)"] += amount
-      else if (day <= 21) weeklyBreakdown["Week 3 (15-21)"] += amount
-      else weeklyBreakdown["Week 4+ (22+)"] += amount
-
-      categoryBreakdown[categoryName] = (categoryBreakdown[categoryName] || 0) + amount
-      total += amount
-    })
-
-    return { totalExpenses: total, weeklyBreakdown, categoryBreakdown }
-  }
 
   useEffect(() => {
     const handleSettingsUpdated = (event) => {
@@ -69,18 +34,16 @@ const Analytics = () => {
       window.removeEventListener("settingsUpdated", handleSettingsUpdated)
     }
   }, [])
-  const monthlyStats = calculateStats(expenses)
+  const monthlyStats = useMemo(
+    () => getMonthlyExpenseStats(transactions, selectedMonth),
+    [transactions, selectedMonth],
+  )
+  const monthLabel = getMonthLabel(selectedMonth)
 
   const leftoverMoney = monthlyIncome - monthlyStats.totalExpenses
 
   return (
     <div className="w-full min-w-0 space-y-8">
-      {isSampleData && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
-          <span className="font-semibold">Showing sample data.</span>{" "}
-          Add your first expense to see your own insights.
-        </div>
-      )}
       <div className="theme-hero rounded-2xl p-6 shadow-lg">
         <div className="flex items-center gap-3">
           <div className="rounded-full bg-white/20 p-2">
@@ -93,6 +56,21 @@ const Analytics = () => {
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="theme-text text-lg font-semibold">Monthly overview</h2>
+        <label className="theme-muted-text flex items-center gap-3 text-sm">
+          <span>Month</span>
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(event) => {
+              if (/^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(event.target.value)) setSelectedMonth(event.target.value)
+            }}
+            className="theme-input min-w-0 rounded-lg border px-3 py-2 text-sm"
+          />
+        </label>
       </div>
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -137,54 +115,19 @@ const Analytics = () => {
         </Card>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        <Card
-          padding="lg"
-          className="bg-linear-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 lg:col-span-1"
-        >
-          <h3 className="mb-4 flex items-center gap-2 font-semibold text-gray-900 dark:text-white">
-            <PieChartIcon size={20} />
-            Category Distribution
-          </h3>
-          <div className="space-y-3">
-            {Object.entries(monthlyStats.categoryBreakdown || {})
-              .sort(([, leftAmount], [, rightAmount]) => rightAmount - leftAmount)
-              .slice(0, 5)
-              .map(([category, amount], index) => {
-                const percentage = (amount / (monthlyStats.totalExpenses || 1)) * 100
-                const colors = [
-                  "bg-red-500",
-                  "bg-orange-500",
-                  "bg-yellow-500",
-                  "bg-green-500",
-                  "bg-blue-500",
-                ]
-
-                return (
-                  <div key={category || index}>
-                    <div className="mb-1 flex items-center justify-between">
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        {category}
-                      </span>
-                      <span className="text-sm font-bold text-gray-900 dark:text-white">
-                        {percentage.toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-                      <div
-                        className={`h-full ${colors[index % colors.length]}`}
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-          </div>
-        </Card>
+      <section className="space-y-4">
+        <CategoryExpenseChart
+          key={`${selectedMonth}:${isReady}:${monthlyStats.categories.length > 0}`}
+          categories={monthlyStats.categories}
+          totalExpenses={monthlyStats.totalExpenses}
+          monthLabel={monthLabel}
+          isReady={isReady}
+          loadError={loadError}
+        />
 
         <Card
           padding="lg"
-          className="bg-linear-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 lg:col-span-2"
+          className="bg-linear-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20"
         >
           <h3 className="mb-4 flex items-center gap-2 font-semibold text-gray-900 dark:text-white">
             <BarChart3 size={20} />
@@ -254,7 +197,7 @@ const Analytics = () => {
               Categories
             </p>
             <p className="mt-1 text-lg font-bold text-blue-600 dark:text-blue-400">
-              {Object.keys(monthlyStats.categoryBreakdown || {}).length}
+              {monthlyStats.categories.length}
             </p>
           </div>
         </div>

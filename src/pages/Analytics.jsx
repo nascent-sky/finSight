@@ -3,6 +3,8 @@ import { BarChart3 } from "lucide-react"
 
 import Card from "../components/ui/Card"
 import CategoryExpenseChart from "../components/analytics/CategoryExpenseChart"
+import IncomeExpenseTrends from "../components/analytics/IncomeExpenseTrends"
+import SpendingCalendar from "../components/analytics/SpendingCalendar"
 import {
   getMonthKey,
   getMonthLabel,
@@ -116,11 +118,24 @@ const Analytics = () => {
       </section>
 
       <section className="space-y-4">
+        <IncomeExpenseTrends
+          transactions={transactions}
+          endMonth={selectedMonth}
+          isReady={isReady}
+          loadError={loadError}
+        />
         <CategoryExpenseChart
           key={`${selectedMonth}:${isReady}:${monthlyStats.categories.length > 0}`}
           categories={monthlyStats.categories}
           totalExpenses={monthlyStats.totalExpenses}
           monthLabel={monthLabel}
+          isReady={isReady}
+          loadError={loadError}
+        />
+
+        <SpendingCalendar
+          transactions={transactions}
+          monthKey={selectedMonth}
           isReady={isReady}
           loadError={loadError}
         />
@@ -167,15 +182,7 @@ const Analytics = () => {
         padding="lg"
         className="bg-linear-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20"
       >
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <div className="text-center">
-            <p className="text-xs font-semibold uppercase text-gray-600 dark:text-gray-400">
-              Avg Daily
-            </p>
-            <p className="mt-1 text-lg font-bold text-gray-900 dark:text-white">
-              Rs {(monthlyStats.totalExpenses / 30).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-            </p>
-          </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           <div className="text-center">
             <p className="text-xs font-semibold uppercase text-gray-600 dark:text-gray-400">
               Avg Weekly

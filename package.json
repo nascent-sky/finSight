@@ -7,9 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "test": "node --test src/components/analytics/*.test.mjs src/components/transactions/*.test.mjs src/features/finance-ai/*.test.mjs netlify/**/*.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@google/genai": "^2.31.0",
     "@tailwindcss/vite": "^4.1.18",
     "axios": "^1.13.4",
     "clsx": "^2.1.1",

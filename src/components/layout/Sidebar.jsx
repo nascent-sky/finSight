@@ -1,6 +1,6 @@
 import clsx from "clsx"
 import { NavLink } from "react-router-dom"
-import { BarChart3, LayoutDashboard, Receipt, Settings, Tags } from "lucide-react"
+import { BarChart3, LayoutDashboard, Receipt, Settings, Sparkles, Tags } from "lucide-react"
 
 import BrandedHeader from "../common/BrandedHeader"
 import { auth } from "../../firebase"
@@ -9,6 +9,7 @@ const navItems = [
   { label: "Dashboard", path: "/", icon: LayoutDashboard },
   { label: "Expenses", path: "/expenses", icon: Receipt },
   { label: "Analytics", path: "/analytics", icon: BarChart3 },
+  { label: "FinSight AI", path: "/ai", icon: Sparkles },
   { label: "Categories", path: "/categories", icon: Tags },
   { label: "Settings", path: "/settings", icon: Settings },
 ]

@@ -22,6 +22,7 @@ import Register from "./pages/auth/Register"
 import Dashboard from "./pages/Dashboard"
 import Expenses from "./pages/Expenses"
 import Analytics from "./pages/Analytics"
+import FinSightAI from "./pages/FinSightAI"
 import Categories from "./pages/Categories"
 import AddExpense from "./pages/AddExpense"
 import Settings from "./pages/Settings"
@@ -458,6 +459,21 @@ function App() {
                   showGlobalAddAction
                 >
                   <Analytics />
+                </AuthLayout>
+              }
+            />
+            <Route
+              path="/ai"
+              element={
+                <AuthLayout
+                  user={user}
+                  isSidebarOpen={isSidebarOpen}
+                  setIsSidebarOpen={setIsSidebarOpen}
+                  onAddClick={handleQuickAddExpense}
+                  isQuickAddOpen={isQuickAddOpen}
+                  setIsQuickAddOpen={setIsQuickAddOpen}
+                >
+                  <FinSightAI />
                 </AuthLayout>
               }
             />

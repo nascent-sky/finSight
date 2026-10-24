@@ -1,6 +1,6 @@
 import clsx from "clsx"
 import { NavLink } from "react-router-dom"
-import { BarChart3, LayoutDashboard, PlusCircle, Receipt, Tags } from "lucide-react"
+import { BarChart3, LayoutDashboard, PlusCircle, Receipt, Sparkles } from "lucide-react"
 
 const BottomNav = ({ onAddClick }) => {
   return (
@@ -19,7 +19,7 @@ const BottomNav = ({ onAddClick }) => {
         </button>
 
         <NavItem to="/analytics" icon={BarChart3} label="Stats" />
-        <NavItem to="/categories" icon={Tags} label="Categories" />
+        <NavItem to="/ai" icon={Sparkles} label="FinSight AI" />
       </div>
     </nav>
   )

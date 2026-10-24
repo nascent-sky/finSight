@@ -380,6 +380,11 @@ export const subscribeToTransactions = (callback, errorCallback) => {
   let firestoreTransactions = []
   let pendingTransactions = []
   let isActive = true
+  let hasFirestoreSnapshot = false
+  let snapshotFromCache = true
+  let snapshotHasPendingWrites = false
+  let pendingReady = false
+  let firestoreFailed = false
 
   const publish = () => {
     if (!isActive || typeof callback !== "function") return
@@ -395,12 +400,17 @@ export const subscribeToTransactions = (callback, errorCallback) => {
     firestoreTransactions.forEach((transaction) => {
       combined.set(transaction.id, transaction)
     })
-    callback(sortTransactions([...combined.values()]))
+    callback(sortTransactions([...combined.values()]), {
+      isReady: hasFirestoreSnapshot && pendingReady && !firestoreFailed,
+      fromCache: snapshotFromCache,
+      hasPendingWrites: snapshotHasPendingWrites || pendingTransactions.length > 0,
+    })
   }
 
   const refreshPendingTransactions = async () => {
     try {
       pendingTransactions = await getPendingTransactions(user.uid)
+      pendingReady = true
       publish()
     } catch (error) {
       if (isActive) errorCallback?.(error)
@@ -415,14 +425,21 @@ export const subscribeToTransactions = (callback, errorCallback) => {
 
   const unsubscribeFirestore = onSnapshot(
     transactionsQuery,
+    { includeMetadataChanges: true },
     (snapshot) => {
+      hasFirestoreSnapshot = true
+      snapshotFromCache = snapshot.metadata.fromCache
+      snapshotHasPendingWrites = snapshot.metadata.hasPendingWrites
       firestoreTransactions = snapshot.docs.map((document) => ({
         id: document.id,
         ...document.data(),
       }))
       publish()
     },
-    errorCallback,
+    (error) => {
+      firestoreFailed = true
+      errorCallback?.(error)
+    },
   )
 
   return () => {

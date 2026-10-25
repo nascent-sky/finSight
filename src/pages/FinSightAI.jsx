@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { ArrowRight, ChartNoAxesCombined, CircleAlert, LockKeyhole, MessageCircle, Plus, RotateCcw, Send, ShieldCheck, Sparkles, WifiOff } from "lucide-react"
+import { ArrowRight, CircleAlert, LockKeyhole, Plus, RotateCcw, Send, ShieldCheck, Sparkles, WifiOff } from "lucide-react"
 import { Link } from "react-router-dom"
 import { useExpenses } from "../context/ExpensesContext"
 import { requestFinanceCapabilities, requestFinanceChat, requestFinanceRoute, subscribeFinanceRecords } from "../services/financeChatService"
-import { financeSourceLabel, localRoutingReason } from "../features/finance-ai/financeRouting"
+import { financeSourceLabel } from "../features/finance-ai/financeRouting"
 import { answerDemoQuestion, createDemoFinancialIndex } from "../features/finance-ai/demoAnalysis"
 import { financeErrorMessage, financePrivacyMessage, financeSessionIdentity } from "../features/finance-ai/financeSession"
 import { INITIAL_QUESTIONS } from "../features/finance-ai/financialContext"
@@ -15,6 +15,8 @@ import "../features/finance-ai/financeChat.css"
 import "../features/finance-ai/responseBlocks.css"
 
 const FOLLOW_UPS = ["What about last month?", "Which transactions contributed most?", "How can I reduce it?"]
+const DEVELOPMENT_NOTICE = "Use only fictional data with Gemini. Never share real financial details."
+const sourceLabel = (source) => source === "gemini_development" ? "Gemini" : source === "demo_local" ? "Sample insights" : financeSourceLabel(source)
 
 export function FinanceChatSession({ user, isAuthReady = false, ...props }) {
   const session = financeSessionIdentity({ user, isAuthReady })
@@ -42,7 +44,6 @@ function FinanceChatConversation({ user, isOnline, isDemo, subscribeRecords = su
   const inputRef = useRef(null)
   const financialIndex = useMemo(() => isDemo ? createDemoFinancialIndex() : createFinancialIndex(feed.ownerUid === user?.uid ? feed.transactions : []), [isDemo, feed.ownerUid, feed.transactions, user?.uid])
   const isDevelopment = !isDemo && policy?.mode === "development"
-  const developer = !isDemo && (import.meta.env.DEV || policy?.development?.allowlisted === true)
   const checkingPolicy = !isDemo && isOnline && policy === null
 
   useEffect(() => {
@@ -120,7 +121,7 @@ function FinanceChatConversation({ user, isOnline, isDemo, subscribeRecords = su
       if (["used", "unavailable"].includes(result.cloud?.status)) setCloudStatus(result.cloud.status)
       setMessages([...history, { role: "assistant", content: result.answer, cards: result.cards, presentation: result.presentation, asOf: result.asOf, source: result.source, cloud: result.cloud, routing: result.routing, recovery: result.recovery }])
     } catch (failure) {
-      if (!active.signal.aborted) { setCloudStatus("unavailable"); setError(financeErrorMessage(failure, developer)) }
+      if (!active.signal.aborted) { setCloudStatus("unavailable"); setError(financeErrorMessage(failure)) }
     } finally {
       if (controller.current === active) { controller.current = null; setBusy(false) }
     }
@@ -144,41 +145,36 @@ function FinanceChatConversation({ user, isOnline, isDemo, subscribeRecords = su
 
   return (
     <div className="ai-page">
-      <div className="ai-page-label"><span>YOUR MONEY, A LITTLE CLEARER</span><span><LockKeyhole size={12} /> {isDemo ? "Sample data only" : "Private by choice"}</span></div>
       <section className="ai-chat" aria-labelledby="ai-title">
         <header className="ai-header">
-          <div className="ai-heading"><span className="ai-avatar"><Sparkles size={23} strokeWidth={1.6} /></span><div><h1 id="ai-title">FinSight <span>AI</span></h1><p>Your personal finance assistant</p></div></div>
+          <div className="ai-heading"><span className="ai-avatar"><Sparkles size={23} strokeWidth={1.6} /></span><div><h1 id="ai-title">FinSight <span>AI</span></h1><p>Your money, made clearer.</p></div></div>
           <button type="button" className="ai-new-chat" onClick={() => reset()}><Plus size={16} /><span>New chat</span></button>
         </header>
-        {isDemo && <div className="ai-demo-status" role="status"><span><Sparkles size={13} /> Demo · Sample financial data</span><span>Local analysis · No cloud requests</span></div>}
-        {policy?.error && <div className="ai-sharing" role="alert"><span>{financePrivacyMessage(policy, consent)}</span><button type="button" disabled={busy} onClick={() => setPolicy(null)}>Retry routing check</button></div>}
-        {!isDemo && policy && !policy.error && <p className="ai-sync-status" role="status" data-routing-code={localRoutingReason(policy, consent).code}>{financePrivacyMessage(policy, consent)}</p>}
-        {developer && policy && <details className="ai-developer-details"><summary>Developer diagnostics</summary><pre>{JSON.stringify({ code: policy.code, routingVersion: policy.routingVersion, mode: policy.mode, reasons: policy.reasons?.map(({ code }) => code), diagnostics: policy.diagnostics }, null, 2)}</pre></details>}
+        {isDemo && <div className="ai-demo-status" role="status"><span><Sparkles size={12} aria-hidden="true" /> Preview mode</span></div>}
+        {policy?.error && <div className="ai-sharing" role="alert"><span>{financePrivacyMessage(policy, consent)}</span><button type="button" disabled={busy} onClick={() => setPolicy(null)}>Retry cloud check</button></div>}
 
         {!isDemo && (!isOnline ? (
           <div className="ai-notice" role="status"><WifiOff size={18} /><div><strong>You’re offline</strong><p>Reconnect to ask FinSight AI. You can still manage your transactions offline.</p></div></div>
         ) : feed.error ? (
           <div className="ai-notice" role="alert"><CircleAlert size={18} /><div><strong>Couldn’t connect to your records</strong><p>{feed.error}</p><button type="button" className="ai-text-link" onClick={() => setFeedAttempt((attempt) => attempt + 1)}>Reload records <RotateCcw size={14} /></button></div></div>
         ) : !consent ? (
-          <div className="ai-notice ai-consent"><ShieldCheck size={20} /><div><strong>You choose when to share</strong>{isDevelopment ? <p>This designated test account must contain only fictional data. Allow full questions, recent conversation, selected dates/categories, relevant fictional transactions and verified summaries to reach Gemini. Record people, notes and IDs are excluded, and known credentials and identifiers are removed. Use only fictional questions and records.</p> : <><p>Local financial analysis uses only your synced records on this device. Cloud sharing is optional and stays off until you allow it for this chat.</p>{policy?.mode === "paid" ? <p>The approved cloud policy allows your questions, recent questions and relevant calculated financial context to reach Gemini. Record names, private notes and transaction IDs are excluded.</p> : <p>Cloud financial explanations are restricted for this account. If you allow sharing, Gemini can interpret generic intent hints; raw questions, amounts, dates, category labels and financial records stay in FinSight.</p>}</>}<p>Chat stays in memory and clears when your account changes.</p><button type="button" className="ai-enable" disabled={checkingPolicy || Boolean(policy?.error) || !policy?.cloudConfigured} onClick={() => setConsent(true)}>{checkingPolicy ? "Checking cloud availability…" : "Allow cloud AI for this chat"} <ArrowRight size={14} /></button><a className="ai-privacy-link" href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noreferrer">Gemini data policy</a></div></div>
+          <div className="ai-notice ai-consent"><ShieldCheck size={18} /><div><strong>Go further with Gemini</strong>{isDevelopment ? <p>Let Gemini explore your questions, recent chat and relevant sample details. Record names and private notes stay excluded.</p> : policy?.mode === "paid" ? <p>Add Gemini’s perspective using your questions, recent chat and relevant financial context. Record names and private notes stay excluded.</p> : <p>Your financial analysis stays on this device. Gemini can help with general questions without receiving your financial records.</p>}<div className="ai-consent-actions"><button type="button" className="ai-enable" aria-describedby={isDevelopment ? "ai-cloud-restriction" : undefined} disabled={checkingPolicy || Boolean(policy?.error) || !policy?.cloudConfigured} onClick={() => setConsent(true)}>{checkingPolicy ? "Checking availability…" : "Enable Gemini"} <ArrowRight size={14} /></button><a className="ai-privacy-link" href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noreferrer">Privacy details</a></div>{isDevelopment && <p className="ai-consent-note" id="ai-cloud-restriction">{DEVELOPMENT_NOTICE}</p>}</div></div>
         ) : (
-          <div className="ai-sharing"><span><ShieldCheck size={14} /> Cloud sharing allowed · {cloudStatus === "used" ? "Gemini used on last cloud request" : cloudStatus === "unavailable" ? "Cloud request failed on last attempt" : "Gemini availability not checked"}</span><button type="button" onClick={() => reset(true)}>Turn off & clear</button></div>
+          <div className="ai-sharing"><span><ShieldCheck size={14} /> Cloud sharing allowed{cloudStatus === "unavailable" ? " · Last request failed" : ""}</span><button type="button" onClick={() => reset(true)}>Turn off & clear</button>{isDevelopment && <p className="ai-consent-note" id="ai-cloud-restriction">{DEVELOPMENT_NOTICE}</p>}</div>
         ))}
         {!isDemo && isOnline && !feed.ready && !feed.error && <p className="ai-sync-status" role="status">Syncing your records before AI can answer…</p>}
 
         <div className="ai-conversation" role="log" aria-label="Conversation with FinSight AI" aria-live="polite" aria-relevant="additions text" aria-busy={busy}>
           {!messages.length ? (
             <div className="ai-empty">
-              <div className="ai-empty-icon"><Sparkles size={32} strokeWidth={1.4} /></div>
-              <span className="ai-eyebrow">MEET FINSIGHT AI</span>
-              <h2>{isDemo ? "Explore a fictional budget." : "Make sense of your money."}</h2>
-              <p>{isDemo ? "Explore a sample budget across several months. Your transactions are not used." : <>Explore your spending, spot what changed,<br className="hidden sm:block" /> and find a little more room to save.</>}</p>
-              <div className="ai-empty-tags"><span><ChartNoAxesCombined size={14} /> {isDemo ? "Sample records" : "Real records"}</span><span><ShieldCheck size={14} /> Calculated insights</span></div>
+              <div className="ai-empty-icon" aria-hidden="true"><Sparkles size={26} strokeWidth={1.4} /></div>
+              <h2>{isDemo ? "See what your money could tell you." : "Discover the story behind your spending."}</h2>
+              <p>{isDemo ? "Explore insights with sample transactions. No account needed." : "Spot patterns, uncover insights, and find smarter ways to save."}</p>
             </div>
           ) : messages.map((message, index) => (
             <article className={`ai-message ai-message-${message.role}`} key={`${index}-${message.role}`} aria-label={message.role === "user" ? "You" : "FinSight AI"}>
               {message.role === "assistant" && <span className="ai-message-sparkle"><Sparkles size={19} /></span>}
-              <div className="ai-message-body"><p className="ai-message-author">{message.role === "user" ? "You" : "FinSight AI"}</p>{message.role === "user" ? <p className="ai-message-text">{message.content}</p> : <div className="ai-message-text"><AssistantResponse answer={message.content} cards={message.cards} presentation={message.presentation} inlineFollowups={false} onFollowup={send} disabled={!canSend} /></div>}{message.role === "assistant" && <p className="ai-record-date" data-routing-code={message.routing?.code}>{financeSourceLabel(message.source)}{message.asOf ? ` · ${isDemo ? "Sample reference date" : "Records through"} ${message.asOf}.` : ""}</p>}{message.recovery?.kind === "narrative_consistency" && index === messages.length - 1 && <div className="ai-error-actions"><button type="button" disabled={unavailable || busy} onClick={() => send(lastRequest.current?.question || "", true)}><RotateCcw size={14} /> Retry Gemini explanation</button></div>}</div>
+              <div className="ai-message-body"><p className="ai-message-author">{message.role === "user" ? "You" : "FinSight AI"}</p>{message.role === "user" ? <p className="ai-message-text">{message.content}</p> : <div className="ai-message-text"><AssistantResponse answer={message.content} cards={message.cards} presentation={message.presentation} inlineFollowups={false} onFollowup={send} disabled={!canSend} /></div>}{message.role === "assistant" && <p className="ai-record-date">{sourceLabel(message.source)}{message.asOf ? ` · ${isDemo ? "Sample date" : "Records through"} ${message.asOf}.` : ""}</p>}{message.recovery?.kind === "narrative_consistency" && index === messages.length - 1 && <div className="ai-error-actions"><button type="button" disabled={unavailable || busy} onClick={() => send(lastRequest.current?.question || "", true)}><RotateCcw size={14} /> Retry Gemini explanation</button></div>}</div>
             </article>
           ))}
           {busy && <div className="ai-typing" role="status" key={sendAttempt}><Sparkles size={18} /><span>{isDemo ? "Exploring sample records" : "Looking at your records"}</span><span className="ai-dots" aria-hidden="true"><i /><i /><i /></span></div>}
@@ -190,14 +186,13 @@ function FinanceChatConversation({ user, isOnline, isDemo, subscribeRecords = su
           <div className="ai-suggestions"><p>{hasAnswer ? "KEEP EXPLORING" : "TRY ASKING"}</p><div>{suggestions.map((question) => <button type="button" key={question} disabled={!canSend} onClick={() => send(question)}>{question}<ArrowRight size={13} aria-hidden="true" /></button>)}</div></div>
           {messages.length >= 40 && <p className="ai-session-limit" role="status">Start a new chat to keep exploring. This chat has reached its session limit.</p>}
           <form className="ai-composer" onSubmit={(event) => { event.preventDefault(); send(input) }}>
-            <textarea ref={inputRef} aria-label="Ask FinSight AI" rows={2} maxLength={1200} value={input} onChange={(event) => setInput(event.target.value)} disabled={unavailable || busy || Boolean(error) || messages.length >= 40} placeholder={isDemo ? "Ask about the sample finances…" : !isOnline ? "Reconnect to continue your chat" : "Ask anything about your finances…"} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(input) } }} />
+            <textarea ref={inputRef} aria-label="Ask FinSight AI" rows={2} maxLength={1200} value={input} onChange={(event) => setInput(event.target.value)} disabled={unavailable || busy || Boolean(error) || messages.length >= 40} placeholder={isDemo ? "Ask about the sample transactions…" : !isOnline ? "Reconnect to continue your chat" : "What would you like to explore?"} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(input) } }} />
             <button type="submit" className="ai-send" aria-label="Send question" disabled={!canSend || !input.trim()}><Send size={19} /></button>
           </form>
-          <div className="ai-footer-note"><span><LockKeyhole size={11} /> {isDemo ? "Local demo · Sample reference: 24 Oct 2026" : isDevelopment ? "Fictional test account · Sharing by consent" : consent ? "Cloud sharing follows your account's privacy policy" : "Direct answers stay on this device"}</span><span>{input.length > 1000 ? `${input.length}/1200 · ` : ""}AI can make mistakes. Check important details.</span></div>
+          <div className="ai-footer-note"><span><LockKeyhole size={11} /> {isDemo ? "Runs on this device" : "Chat clears when you switch accounts"}</span><span>{input.length > 1000 ? `${input.length}/1200 · ` : ""}AI can make mistakes. Check important details.</span></div>
           {!isDemo && feed.ready && feed.transactions.length === 0 && <p className="ai-no-records">No recorded transactions yet. <Link to="/expenses">Add a transaction</Link> to get personal insights.</p>}
         </footer>
       </section>
-      <p className="ai-below"><MessageCircle size={13} /> A conversation about your finances. A clearer next step.</p>
     </div>
   )
 }

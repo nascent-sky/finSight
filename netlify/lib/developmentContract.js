@@ -14,15 +14,17 @@ export function developmentQuery(plan) {
 }
 
 export function validateDevelopmentPlan(output, { now, timezone }) {
-  if (!output || typeof output !== "object" || Array.isArray(output) || Object.keys(output).some((key) => !["status", "queries", "guideId"].includes(key)) || !["resolved", "clarify", "guide"].includes(output.status) || !Array.isArray(output.queries) || output.queries.length > 3) invalid()
+  if (!output || typeof output !== "object" || Array.isArray(output) || Object.keys(output).some((key) => !["status", "queries", "guideId", "clarification"].includes(key)) || !["resolved", "clarify", "guide"].includes(output.status) || !Array.isArray(output.queries) || output.queries.length > 3) invalid()
+  // Retained resolved scopes predate the provider-only clarification field.
+  if (Object.hasOwn(output, "clarification") && (typeof output.clarification !== "string" || output.clarification.length > 1200 || output.status !== "clarify" && output.clarification.trim())) invalid()
   if (output.status === "guide") {
     if (output.guideId !== "gpay_import" || output.queries.length) invalid("tool_forbidden", false)
     return { guideId: output.guideId, plans: [] }
   }
   if (output.guideId != null) invalid("tool_forbidden", false)
   if (output.status === "clarify") {
-    if (output.queries.length) invalid()
-    return { clarify: true, plans: [] }
+    if (output.queries.length || typeof output.clarification !== "string" || !output.clarification.trim()) invalid()
+    return { clarify: true, plans: [], clarification: output.clarification.trim() }
   }
   if (!output.queries.length) invalid()
   const plans = output.queries.map((query) => {

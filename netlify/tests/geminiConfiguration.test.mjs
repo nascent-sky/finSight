@@ -21,7 +21,7 @@ const records = [
 const query = (extra = {}) => ({ intent: "breakdown", start: "2026-10-01", end: "2026-11-01", comparisonStart: null, comparisonEnd: null, category: null, method: null, task: "answer", targetPaise: null, ...extra })
 const plan = (extra) => {
   const q = query(extra)
-  return { status: "resolved", guideId: "", queries: [{ ...q, comparisonStart: q.comparisonStart || "", comparisonEnd: q.comparisonEnd || "", category: q.category || "", method: q.method || "", targetPaise: q.targetPaise || 0, reductionBps: q.reductionBps ?? -1 }] }
+  return { status: "resolved", guideId: "", clarification: "", queries: [{ ...q, comparisonStart: q.comparisonStart || "", comparisonEnd: q.comparisonEnd || "", category: q.category || "", method: q.method || "", targetPaise: q.targetPaise || 0, reductionBps: q.reductionBps ?? -1 }] }
 }
 const flat = (type, values = {}) => ({ type, kind: "recommendation", text: "", title: "", id: "", estimateId: "", ordered: false, items: [], ...values })
 const result = (...blocks) => ({ blocks, cardIds: [] })
@@ -48,7 +48,7 @@ function inspectRequest(url, body, options) {
     // Planning remains its own typed read-only query request, never mixed with
     // final formatting or SDK function-calling declarations.
     assertSimpleResponseSchema(config.responseJsonSchema)
-    assert.deepEqual(config.responseJsonSchema.required, ["status", "guideId", "queries"])
+    assert.deepEqual(config.responseJsonSchema.required, ["status", "guideId", "queries", "clarification"])
     assert.equal(config.responseJsonSchema.properties.queries.items.properties.targetPaise.type, "integer")
     for (const property of Object.values(config.responseJsonSchema.properties.queries.items.properties)) assert.equal(Array.isArray(property.type), false)
   }
@@ -179,10 +179,11 @@ test("a rejected planning/thinking request is identified before financial tools 
   assert.equal(a.reads.length, 0)
 })
 
-test("429, exhausted 503 and transport failures remain distinct with bounded request counts", async () => {
+test("429, exhausted 503, 504 and transport failures remain distinct with bounded request counts", async () => {
   for (const [steps, status, code, reason, calls, waits] of [
     [[httpError(429, "PRIVATE quota")], 429, "GEMINI_RATE_LIMITED", "rate_limit", 1, 0],
     [[httpError(503, "PRIVATE unavailable"), httpError(503, "PRIVATE unavailable")], 503, "GEMINI_PROVIDER_FAILED", "unavailable", 2, 1],
+    [[httpError(504, "PRIVATE deadline")], 504, "GEMINI_TIMEOUT", "timeout", 1, 0],
     [[{ network: true }], 503, "GEMINI_TRANSPORT_FAILED", "transport_failure", 1, 0],
   ]) {
     const a = app(steps)
@@ -197,6 +198,91 @@ test("429, exhausted 503 and transport failures remain distinct with bounded req
     assert.equal(a.reads.length, 0)
     assert.doesNotMatch(JSON.stringify(response), /PRIVATE/)
   }
+})
+
+test("a planning deadline keeps sanitized timeout diagnostics without retrying or changing configuration", async () => {
+  const controller = new AbortController()
+  let calls = 0
+  await assert.rejects(() => generateDevelopmentJson({ env, uid, token, stage: "planning", schema: GEMINI_PLAN_SCHEMA, instructions: "Synthetic test", context: {}, signal: controller.signal,
+    clientFactory: (options) => {
+      assert.equal(options.httpOptions.timeout, 16000)
+      assert.equal(options.httpOptions.retryOptions.attempts, 1)
+      return { models: { generateContent: async () => { calls++; controller.abort(new DOMException("PRIVATE deadline detail", "TimeoutError")); throw controller.signal.reason } } }
+    },
+  }), (error) => {
+    assert.equal(error.code, "GEMINI_TIMEOUT")
+    assert.equal(error.status, 504)
+    assert.equal(error.origin, "provider")
+    assert.equal(error.provider.stage, "planning")
+    assert.equal(error.provider.reason, "timeout")
+    assert.equal(error.provider.status, null) // A local deadline has no provider HTTP status.
+    assert.equal(error.provider.attempts, 1)
+    assert.doesNotMatch(JSON.stringify(error), /PRIVATE/)
+    assert.doesNotMatch(error.message, /PRIVATE/)
+    return true
+  })
+  assert.equal(calls, 1)
+})
+
+test("clarification is written in the planning response with no extra narrative request or financial retrieval", async () => {
+  const question = "Which spending period would you like to explore?"
+  const a = app([{ status: "clarify", guideId: "", queries: [], clarification: question }])
+  const response = await a.ask("Why?")
+  assert.equal(response.status, 200)
+  assert.equal(response.answer, question)
+  assert.equal(response.source, "gemini_development")
+  assert.deepEqual(response.cards, [])
+  assert.equal(response.cloud.stage, "planning")
+  assert.deepEqual(a.events, ["planning"])
+  assert.equal(a.calls.length, 1)
+  assert.equal(a.reads.length, 0)
+})
+
+test("straightforward financial totals use planning and explanation without a clarification request", async () => {
+  for (const [question, intent] of [["How much did I spend this month?", "expenses"], ["What is my income this month?", "income"]]) {
+    const a = app([plan({ intent }), { answer: "{{q0_record_status}}" }])
+    const response = await a.ask(question)
+    assert.equal(response.status, 200)
+    assert.deepEqual(a.events, ["planning", "financial_tools", "explanation"])
+    assert.equal(a.calls.length, 2)
+    assert.equal(a.reads.length, 1)
+  }
+})
+
+test("inline clarification keeps validation, a single correction budget, and the original conversation scope", async () => {
+  const scope = { version: 2, queries: [query()] }
+  const valid = { status: "clarify", guideId: "", queries: [], clarification: "Which spending period do you mean?" }
+  for (const clarification of [undefined, null, 42, "", " ", "x".repeat(1201), "You spent ₹999.", "<script>unsafe()</script>", "See https://untrusted.example"]) {
+    const a = app([{ ...valid, clarification }, valid])
+    const response = await a.ask("Why?", { context: scope })
+    assert.equal(response.status, 200)
+    assert.equal(response.answer, valid.clarification)
+    assert.deepEqual(response.context, scope)
+    assert.equal(response.cloud.correctionAttempted, true)
+    assert.deepEqual(a.events, ["planning", "planning"])
+    assert.equal(a.reads.length, 0)
+  }
+  const invalid = { ...valid, clarification: "You spent ₹999." }
+  const a = app([invalid, invalid])
+  const response = await a.ask("Why?")
+  assert.equal(response.status, 502)
+  assert.equal(response.origin, "model_output")
+  assert.equal(response.validation.stage, "planning")
+  assert.equal(response.validation.field, "clarification")
+  assert.equal(response.validation.correctionAttempted, true)
+  assert.equal(a.calls.length, 2)
+  assert.equal(a.reads.length, 0)
+})
+
+test("a transient planning 503 retries once before an inline clarification without nested SDK retries", async () => {
+  const a = app([httpError(503, "PRIVATE unavailable"), { status: "clarify", guideId: "", queries: [], clarification: "Which spending period do you mean?" }])
+  const response = await a.ask("Why?")
+  assert.equal(response.status, 200)
+  assert.equal(a.calls.length, 2)
+  assert.deepEqual(a.calls[0].body, a.calls[1].body)
+  assert.equal(a.waits.length, 1)
+  assert.ok(a.waits[0] >= 250 && a.waits[0] < 400)
+  assert.equal(a.reads.length, 0)
 })
 
 test("a transient final-stage 503 retries once with unchanged configuration and no duplicate financial retrieval", async () => {

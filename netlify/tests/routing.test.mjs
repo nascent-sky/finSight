@@ -213,12 +213,12 @@ test("a development response cannot be labelled Gemini-generated if the backend 
   assert.equal(a.provider.length, 0)
 })
 
-test("Gemini also generates clarification prose instead of a canned response with a Gemini label", async () => {
-  const a = app({ steps: [{ status: "clarify", queries: [] }, answer("Which spending period would you like me to explain?")] })
+test("Gemini generates clarification prose in the plan without a second cloud call", async () => {
+  const a = app({ steps: [{ status: "clarify", queries: [], clarification: "Which spending period would you like me to explain?" }] })
   const result = await a.ask("Why?")
   assert.equal(result.source, "gemini_development")
   assert.equal(result.answer, "Which spending period would you like me to explain?")
-  assert.equal(a.provider.length, 2)
+  assert.equal(a.provider.length, 1)
   assert.equal(a.reads.length, 0)
 })
 

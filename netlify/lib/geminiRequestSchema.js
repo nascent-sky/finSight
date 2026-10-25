@@ -2,11 +2,12 @@
 // financial authority, relevance and display shape are enforced in our existing
 // server validator, never by an expanding union of provider JSON grammars.
 export const GEMINI_RESPONSE_SCHEMA_VERSION = "narrative-refs-v1"
-export const GEMINI_PLAN_SCHEMA_VERSION = "flat-plan-v1"
+export const GEMINI_PLAN_SCHEMA_VERSION = "flat-plan-v2"
 export const GEMINI_PLAN_SCHEMA = {
-  type: "object", additionalProperties: false, required: ["status", "guideId", "queries"], properties: {
+  type: "object", additionalProperties: false, required: ["status", "guideId", "queries", "clarification"], properties: {
     status: { type: "string", enum: ["resolved", "clarify", "guide"] },
     guideId: { type: "string" },
+    clarification: { type: "string" },
     queries: { type: "array", maxItems: 3, items: { type: "object", additionalProperties: false,
       required: ["intent", "start", "end", "comparisonStart", "comparisonEnd", "category", "method", "task", "targetPaise", "reductionBps"],
       properties: {
@@ -18,7 +19,7 @@ export const GEMINI_PLAN_SCHEMA = {
     } },
   },
 }
-export const GEMINI_PLAN_FORMAT = `Provider wire format: always return status, guideId and queries. guideId is an empty string for financial questions and clarification, or gpay_import for that implemented guide. Every query contains all schema fields. Use empty strings for absent comparisonStart/comparisonEnd/category/method, targetPaise=0 when no target was requested and reductionBps=-1 when no percentage was requested. These are wire-only sentinels: do not return null or omit fields. Financial bounds, dates and permissions are checked by the backend before tools run.`
+export const GEMINI_PLAN_FORMAT = `Provider wire format: always return status, guideId, queries and clarification. clarification is an empty string for resolved queries and guides. For status clarify, supply one brief question about the missing supported scope in clarification, with no financial figures, dates, factual claims, identifiers, HTML or links; no second writing request will be made. guideId is an empty string for financial questions and clarification, or gpay_import for that implemented guide. Every query contains all schema fields. Use empty strings for absent comparisonStart/comparisonEnd/category/method, targetPaise=0 when no target was requested and reductionBps=-1 when no percentage was requested. These are wire-only sentinels: do not return null or omit fields. Financial bounds, dates and permissions are checked by the backend before tools run.`
 
 export function normalizeGeminiPlan(output) {
   // Canonical legacy outputs and retained conversation scopes remain unchanged.

@@ -20,8 +20,10 @@
 .ai-sharing span { display: flex; align-items: center; gap: 6px; }
 .ai-sharing svg { color: var(--accent-color); }
 .ai-sharing button { text-decoration: underline; text-underline-offset: 3px; }
-.ai-sharing button[aria-pressed="true"] { color: var(--accent-color); font-weight: 600; }
-.ai-demo-select { flex: 1; min-width: 0; width: 100%; background: var(--surface-color); color: var(--text-color); border: 0; padding: 10px 6px; font: inherit; font-size: 13px; }
+.ai-demo-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 16px 28px 0; font-size: 10px; color: var(--muted-text-color); }
+.ai-demo-status > span:first-child { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 20px; color: var(--accent-color); background: var(--accent-soft-color); }
+.ai-developer-details { margin: 12px 28px 0; font-size: 10px; color: var(--muted-text-color); }
+.ai-developer-details pre { overflow-x: auto; padding: 10px 0; }
 .ai-sync-status { color: var(--muted-text-color); font-size: 11px; margin: 12px 28px 0; }
 .ai-conversation { padding: 12px 28px 0; overflow-wrap: anywhere; }
 .ai-empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 42px 8px 40px; }
@@ -97,6 +99,7 @@
   .ai-new-chat svg { width: 13px; }
   .ai-notice { margin: 14px 12px 0; padding: 12px; font-size: 11px; gap: 8px; }
   .ai-sharing { margin: 14px 14px 0; font-size: 10px; }
+  .ai-demo-status, .ai-developer-details { margin-left: 14px; margin-right: 14px; }
   .ai-conversation { padding: 8px 14px 0; }
   .ai-empty { padding: 25px 0 32px; }
   .ai-empty h2 { font-size: 25px; }

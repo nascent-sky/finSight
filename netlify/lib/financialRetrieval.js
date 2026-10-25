@@ -1,7 +1,9 @@
+import { aiError } from "./aiErrors.js"
+
 const MAX_RECORDS = 5000
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 const fields = ["amount", "datetime", "type", "category", "paymentMethod", "isSample", "isSampleData", "source"]
-const fail = (message, status = 502) => { throw Object.assign(new Error(message), { status }) }
+const fail = (message, status = 502) => { throw aiError(message, { status, code: "FINANCIAL_RETRIEVAL_FAILED", origin: "tool" }) }
 
 async function limitedJson(response) {
   if (Number(response.headers.get("content-length")) > MAX_RESPONSE_BYTES) fail("That period contains too much data. Please choose a smaller range.", 413)

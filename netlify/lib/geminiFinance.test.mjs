@@ -20,7 +20,7 @@ test("official SDK serializes exact model, LOW thinking and structured output wi
   let sent, requests = 0
   const result = await explainWithGemini({ ...settings(), clientFactory: (configuration) => new GoogleGenAI({ ...configuration, httpOptions: { ...configuration.httpOptions, fetch: async (url, init) => {
     requests++
-    assert.match(String(url), /gemini-3\.8-flash:generateContent/)
+    assert.match(String(url), /gemini-3\.1-flash-lite:generateContent/)
     sent = JSON.parse(init.body)
     return Response.json({ candidates: [{ finishReason: "STOP", content: { role: "model", parts: [{ text: JSON.stringify({ answer: "You recorded {{current_expenses}} on food.", cardIds: ["expenses"] }) }] } }] })
   } } }) })
@@ -30,7 +30,9 @@ test("official SDK serializes exact model, LOW thinking and structured output wi
   assert.equal(result.cards[0].currentPaise, 345000)
   assert.equal(sent.generationConfig.thinkingConfig.thinkingLevel, "LOW")
   assert.equal(sent.generationConfig.responseMimeType, "application/json")
-  assert.deepEqual(sent.generationConfig.responseJsonSchema.required, ["answer", "cardIds"])
+  assert.deepEqual(sent.generationConfig.responseJsonSchema.required, ["answer"])
+  assert.equal(sent.generationConfig.responseJsonSchema.properties.blockIds.items.type, "string")
+  assert.equal(Object.hasOwn(sent.generationConfig.responseJsonSchema, "anyOf"), false)
   for (const field of ["temperature", "topP", "topK", "candidateCount"]) assert.ok(!Object.hasOwn(sent.generationConfig, field))
   assert.equal(sent.contents.length, 1)
   assert.equal(sent.contents[0].role, "user")
@@ -64,8 +66,8 @@ test("unsupported model errors identify the exact configured model and never fal
   assert.deepEqual(models, ["gemini-3.8-flash"])
 })
 
-test("raw numeric hallucinations, unsupported cards, invalid JSON and unfinished output fail closed", async () => {
-  for (const output of [response("You spent ₹999."), response("{{unknown}}"), response("Recorded spending changed.", ["fake"]), { text: "not-json", candidates: [{ finishReason: "STOP" }] }, { text: "", candidates: [{ finishReason: "SAFETY" }] }]) {
+test("raw numeric hallucinations, unknown facts, invalid JSON and unfinished output fail closed", async () => {
+  for (const output of [response("You spent ₹999."), response("{{unknown}}"), { text: "not-json", candidates: [{ finishReason: "STOP" }] }, { text: "", candidates: [{ finishReason: "SAFETY" }] }]) {
     await assert.rejects(() => explainWithGemini({ ...settings(), clientFactory: () => ({ models: { generateContent: async () => output } }) }), { status: 502 })
   }
 })
@@ -82,7 +84,7 @@ test("official SDK structured interpretation sends only questions and scope, nev
   let sent, calls = 0
   const result = await interpretWithGemini({ env, ...options, questions: ["What damage did my wallet take today via UPI?"], clientFactory: (configuration) => new GoogleGenAI({ ...configuration, httpOptions: { ...configuration.httpOptions, fetch: async (url, init) => {
     calls++
-    assert.match(String(url), /gemini-3\.8-flash:generateContent/)
+    assert.match(String(url), /gemini-3\.1-flash-lite:generateContent/)
     sent = JSON.parse(init.body)
     return Response.json({ candidates: [{ finishReason: "STOP", content: { role: "model", parts: [{ text: JSON.stringify(intent) }] } }] })
   } } }) })

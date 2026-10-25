@@ -1,6 +1,7 @@
 import { analyseFinancialQuery, publicFinancialAnswer } from "./financialEngine.js"
 import { planFinancialQuestion } from "./questionPlanner.js"
 import { localRoutingReason, routingError, validateDevelopmentAnswer, validateFinancePolicy } from "./financeRouting.js"
+import { appGuideResponse, findAppGuide } from "./appGuidance.js"
 
 export async function answerFinanceQuestion({ index, question, history = [], context, consent = false, development = false, policy, requestRoute, requestCloud, signal, now = new Date() }) {
   if (signal?.aborted) throw new DOMException("Request cancelled", "AbortError")
@@ -20,6 +21,8 @@ export async function answerFinanceQuestion({ index, question, history = [], con
     if (signal?.aborted) throw new DOMException("Request cancelled", "AbortError")
     return result
   }
+  const guide = findAppGuide(question)
+  if (guide) return appGuideResponse(guide, context)
   const userHistory = history.filter((message) => message.role === "user").slice(-5)
   const plan = planFinancialQuestion(question, userHistory, { now, timezone: index.timezone, categoryNames: index.categoryNames, context })
   const analysis = analyseFinancialQuery(index, plan)

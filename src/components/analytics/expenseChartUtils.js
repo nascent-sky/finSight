@@ -34,7 +34,12 @@ const inrFormatter = new Intl.NumberFormat("en-IN", {
   minimumFractionDigits: 0,
 })
 
-export const formatExpenseAmount = (amount) => inrFormatter.format(amount)
+const fractionalInrFormatter = new Intl.NumberFormat("en-IN", {
+  style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2,
+})
+
+export const formatExpenseAmount = (amount) =>
+  (Number.isInteger(Math.round(amount * 100) / 100) ? inrFormatter : fractionalInrFormatter).format(amount)
 
 export const formatExpensePercentage = (percentage) =>
   percentage > 0 && percentage < 0.1 ? "<0.1%" : `${percentage.toFixed(1)}%`

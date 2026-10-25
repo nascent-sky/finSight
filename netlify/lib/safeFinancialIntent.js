@@ -2,6 +2,7 @@ import { TRANSACTION_CATEGORIES } from "../../src/components/transactions/transa
 import { hasUnresolvedMeaning, isContinuation, normalizeQuestion } from "../../src/features/finance-ai/questionLanguage.js"
 import { FINANCIAL_INTENTS, validateConversationContext } from "../../src/features/finance-ai/questionPlanner.js"
 import { aiError } from "./aiErrors.js"
+import { modelValidationError } from "./modelValidation.js"
 
 // Only these program-owned enum values can leave the server on the safe path.
 // This is a semantic projection, not a claim that regex redaction makes an
@@ -34,9 +35,9 @@ export function buildSafeIntentInput(question, { context = null, category = null
 }
 
 export function applySafeIntent(output, candidate, { asOf, context = null } = {}) {
-  if (!output || Object.keys(output).some((key) => !["status", "intent", "reference"].includes(key)) || !["resolved", "clarify"].includes(output.status) || !FINANCIAL_INTENTS.includes(output.intent) || typeof output.reference !== "boolean") throw aiError("Gemini returned an invalid intent. Please specify the financial question explicitly.", { status: 502, code: "GEMINI_OUTPUT_INVALID", origin: "provider" })
+  if (!output || Object.keys(output).some((key) => !["status", "intent", "reference"].includes(key)) || !["resolved", "clarify"].includes(output.status) || !FINANCIAL_INTENTS.includes(output.intent) || typeof output.reference !== "boolean") throw modelValidationError("plan_schema", "planning", { repairable: false })
   if (output.status === "clarify") return { route: "clarify", message: "Should I total expenses, list transactions, rank categories or compare periods? Please specify the scope.", asOf, preserveContext: Boolean(context) }
-  if (output.reference && !context) throw aiError("Gemini referenced a scope that is not available. Please specify the period and metric.", { status: 502, code: "GEMINI_OUTPUT_INVALID", origin: "provider" })
+  if (output.reference && !context) throw modelValidationError("tool_scope", "planning", { repairable: false })
   if (!candidate?.period) throw aiError("Please specify the period and supported filters locally.", { status: 422, code: "SAFE_INTENT_NEEDS_CLARIFICATION", origin: "privacy" })
   // All real scope values remain in the application. The model selects only an
   // operation, which cannot add a filter, amount, date or database query.

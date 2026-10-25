@@ -104,6 +104,23 @@ test("provider failure after validated retrieval is a retryable error, never a l
   assert.equal(a.http.length, 1)
 })
 
+test("a deterministic Gemini 400 reaches the client with its stage and cannot trigger retry or local fallback", async () => {
+  const a = app({ steps: [plan(), { http: 400 }] })
+  await assert.rejects(() => a.ask("Explain that again"), (error) => {
+    assert.equal(error.code, "GEMINI_REQUEST_REJECTED")
+    assert.equal(error.origin, "provider")
+    assert.equal(error.providerStatus, 400)
+    assert.equal(error.retryable, false)
+    assert.equal(error.provider.stage, "explanation")
+    assert.equal(error.provider.reason, "request_configuration")
+    assert.doesNotMatch(error.message, /PRIVATE|unsupported model/)
+    return true
+  })
+  assert.equal(a.reads.length, 1)
+  assert.equal(a.provider.length, 2)
+  assert.equal(a.http.length, 1)
+})
+
 test("eligible legacy personal-mode requests are also upgraded by the server before keyword parsing", async () => {
   const a = app({ steps: [plan(), answer()] })
   const result = await a.client.requestChat({ user: a.user, messages: [{ role: "user", content: "Where did my money go?" }], consent: true, timezone })
@@ -170,7 +187,7 @@ test("tool requests still reject arbitrary paths and invalid filters before any 
     const malformed = plan()
     Object.assign(malformed.queries[0], change)
     const a = app({ steps: [malformed] })
-    await assert.rejects(() => a.ask("List my expenses"), { code: "GEMINI_OUTPUT_INVALID", origin: "provider" })
+    await assert.rejects(() => a.ask("List my expenses"), { code: "GEMINI_TOOL_REQUEST_INVALID", origin: "model_output" })
     assert.equal(a.reads.length, 0)
     assert.equal(a.provider.length, 1)
   }

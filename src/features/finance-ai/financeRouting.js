@@ -1,5 +1,10 @@
 // Shared by the browser and function to detect mismatched deployed versions.
 export const FINANCE_ROUTING_VERSION = 1
+export const NARRATIVE_CONTRADICTION_RULES = ["narrative_records_contradiction", "narrative_metric_contradiction", "narrative_scope_contradiction", "narrative_direction_contradiction", "narrative_role_contradiction", "narrative_savings_contradiction"]
+
+export function isVerifiedNarrativeRecovery(value) {
+  return value?.source === "local_verified" && value.recovery?.kind === "narrative_consistency" && NARRATIVE_CONTRADICTION_RULES.includes(value.recovery.rule) && typeof value.recovery.repairAttempted === "boolean" && value.recovery.retryable === true && value.cloud?.status === "unavailable"
+}
 
 export function routingError(message, code = "AI_ROUTING_UNVERIFIED", origin = "configuration") {
   return Object.assign(new Error(message), { code, origin, retryable: true })
@@ -13,7 +18,7 @@ export function validateFinancePolicy(value) {
 }
 
 export function validateDevelopmentAnswer(value) {
-  if (value?.routingVersion !== FINANCE_ROUTING_VERSION || value.source !== "gemini_development" || value.fictionalDataOnly !== true || value.cloud?.status !== "used" || value.cloud?.dataHandling !== "development") throw routingError("The AI function did not return a Gemini-generated development answer. Retry; no local answer was substituted.", "DEVELOPMENT_RESPONSE_MISMATCH")
+  if (value?.routingVersion !== FINANCE_ROUTING_VERSION || value.fictionalDataOnly !== true || value.cloud?.dataHandling !== "development" || !(value.source === "gemini_development" && value.cloud?.status === "used" || isVerifiedNarrativeRecovery(value))) throw routingError("The AI function did not return a Gemini-generated development answer or an explicit verified narrative recovery.", "DEVELOPMENT_RESPONSE_MISMATCH")
   return value
 }
 
@@ -24,5 +29,5 @@ export function localRoutingReason(policy, consent) {
 }
 
 export function financeSourceLabel(source) {
-  return { local: "Local financial answer", gemini: "Gemini-generated answer", gemini_development: "Gemini-generated answer · Development · fictional test data", gemini_demo: "Gemini-generated synthetic demonstration", gemini_intent: "Gemini interpreted · FinSight calculated" }[source] || "Unverified response source"
+  return { local: "Local financial answer", local_verified: "Verified financial answer · Local explanation", demo_local: "Demo · Local sample analysis", gemini: "Gemini-generated answer", gemini_development: "Gemini-generated answer · Development · fictional test data", gemini_demo: "Gemini-generated synthetic demonstration", gemini_intent: "Gemini interpreted · FinSight calculated" }[source] || "Unverified response source"
 }

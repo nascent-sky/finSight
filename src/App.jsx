@@ -370,6 +370,7 @@ function App() {
     fromCache: isMatchingExpenseFeed ? expenseState.fromCache : true,
     hasPendingWrites: isMatchingExpenseFeed ? expenseState.hasPendingWrites : false,
     isOnline,
+    isAuthReady,
     isReady: isMatchingExpenseFeed && expenseState.isReady,
     isSyncing: isMatchingExpenseFeed && expenseState.hasPendingWrites,
     persistenceState,

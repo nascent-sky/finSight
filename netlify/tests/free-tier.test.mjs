@@ -159,12 +159,12 @@ test("free-tier output cannot invent dates, financial values or unsupported oper
   for (const output of [{ ...intent(), amount: 999 }, { ...intent(), start: "1900-01-01" }, intent("delete"), { ...intent(), reference: true }]) {
     const response = await handler({ retrieve: () => { reads++; throw new Error("unexpected") }, interpretSafe: (settings) => interpretSafeWithGemini({ ...settings, clientFactory: mockSDK(output) }) })(request(personal()))
     assert.equal(response.status, 502)
-    assert.equal((await response.json()).origin, "provider")
+    assert.equal((await response.json()).origin, "model_output")
   }
   assert.equal(reads, 0)
   const response = await handler({ demonstrate: (settings) => explainSyntheticWithGemini({ ...settings, clientFactory: mockSDK({ answer: "You spent ₹999.", cardIds: [] }) }) })(request(demo()))
   assert.equal(response.status, 502)
-  assert.equal((await response.json()).code, "GEMINI_OUTPUT_INVALID")
+  assert.equal((await response.json()).code, "GEMINI_NUMERIC_UNVERIFIED")
 })
 
 test("local financial answers still work with no key, consent or provider call", async () => {

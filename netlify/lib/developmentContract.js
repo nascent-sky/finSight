@@ -1,38 +1,39 @@
-import { FINANCIAL_INTENTS, MAX_RETRIEVAL_MONTHS, localDateKey, monthsBetween, monthStart, shiftDay, shiftMonth, validateConversationContext, validateInterpretedIntent } from "../../src/features/finance-ai/questionPlanner.js"
+import { MAX_RETRIEVAL_MONTHS, localDateKey, monthsBetween, monthStart, shiftDay, shiftMonth, validateConversationContext, validateInterpretedIntent } from "../../src/features/finance-ai/questionPlanner.js"
 import { MAX_MONEY_PAISE } from "../../src/features/finance-ai/financialContext.js"
 import { aiError } from "./aiErrors.js"
+import { modelValidationError } from "./modelValidation.js"
+import { GEMINI_PLAN_SCHEMA } from "./geminiRequestSchema.js"
 
-const invalid = () => { throw aiError("Gemini requested an unsupported financial scope. Please narrow the period, categories or question.", { status: 502, code: "GEMINI_OUTPUT_INVALID", origin: "provider" }) }
+const invalid = (rule = "plan_schema", repairable = true) => { throw modelValidationError(rule, "planning", { repairable }) }
 const keys = ["intent", "start", "end", "comparisonStart", "comparisonEnd", "category", "method", "task", "targetPaise"]
-export const DEVELOPMENT_PLAN_SCHEMA = {
-  type: "object", additionalProperties: false, required: ["status", "queries"], properties: {
-    status: { type: "string", enum: ["resolved", "clarify"] },
-    queries: { type: "array", maxItems: 3, items: { type: "object", additionalProperties: false, required: keys, properties: {
-      intent: { type: "string", enum: FINANCIAL_INTENTS }, start: { type: "string" }, end: { type: "string" },
-      comparisonStart: { type: ["string", "null"] }, comparisonEnd: { type: ["string", "null"] },
-      category: { type: ["string", "null"], maxLength: 80 }, method: { type: ["string", "null"], enum: ["cash", "upi", null] },
-      task: { type: "string", enum: ["answer", "analyse", "reduce"] }, targetPaise: { type: ["integer", "null"], minimum: 1, maximum: MAX_MONEY_PAISE },
-    } } },
-  },
-}
+const optionalKeys = ["reductionBps"]
+export const DEVELOPMENT_PLAN_SCHEMA = GEMINI_PLAN_SCHEMA
 
 export function developmentQuery(plan) {
-  return { intent: plan.intent, start: plan.period.start, end: plan.period.end, comparisonStart: plan.comparison?.start || null, comparisonEnd: plan.comparison?.end || null, category: plan.category, method: plan.method, task: plan.task || "answer", targetPaise: plan.targetPaise || null }
+  return { intent: plan.intent, start: plan.period.start, end: plan.period.end, comparisonStart: plan.comparison?.start || null, comparisonEnd: plan.comparison?.end || null, category: plan.category, method: plan.method, task: plan.task || "answer", targetPaise: plan.targetPaise || null, ...(plan.reductionBps != null ? { reductionBps: plan.reductionBps } : {}) }
 }
 
 export function validateDevelopmentPlan(output, { now, timezone }) {
-  if (!output || Object.keys(output).some((key) => !["status", "queries"].includes(key)) || !["resolved", "clarify"].includes(output.status) || !Array.isArray(output.queries) || output.queries.length > 3) invalid()
+  if (!output || typeof output !== "object" || Array.isArray(output) || Object.keys(output).some((key) => !["status", "queries", "guideId"].includes(key)) || !["resolved", "clarify", "guide"].includes(output.status) || !Array.isArray(output.queries) || output.queries.length > 3) invalid()
+  if (output.status === "guide") {
+    if (output.guideId !== "gpay_import" || output.queries.length) invalid("tool_forbidden", false)
+    return { guideId: output.guideId, plans: [] }
+  }
+  if (output.guideId != null) invalid("tool_forbidden", false)
   if (output.status === "clarify") {
     if (output.queries.length) invalid()
     return { clarify: true, plans: [] }
   }
   if (!output.queries.length) invalid()
   const plans = output.queries.map((query) => {
-    if (!query || Object.keys(query).some((key) => !keys.includes(key)) || keys.some((key) => !Object.hasOwn(query, key)) || !["answer", "analyse", "reduce"].includes(query.task)) invalid()
-    if (query.targetPaise != null && (!Number.isSafeInteger(query.targetPaise) || query.targetPaise <= 0 || query.targetPaise > MAX_MONEY_PAISE)) invalid()
+    if (!query || typeof query !== "object" || Array.isArray(query)) invalid()
+    if (Object.keys(query).some((key) => ![...keys, ...optionalKeys].includes(key))) invalid("tool_forbidden", false)
+    if (keys.some((key) => !Object.hasOwn(query, key)) || !["answer", "analyse", "reduce"].includes(query.task)) invalid()
+    if (query.targetPaise != null && (!Number.isSafeInteger(query.targetPaise) || query.targetPaise <= 0 || query.targetPaise > MAX_MONEY_PAISE)) invalid("tool_scope", false)
+    if (query.reductionBps != null && (!Number.isInteger(query.reductionBps) || query.reductionBps < 0 || query.reductionBps > 10000 || query.task !== "reduce" || ["income", "cashflow"].includes(query.intent))) invalid("tool_scope", false)
     let plan
-    try { plan = validateInterpretedIntent({ status: "resolved", intent: query.intent, start: query.start, end: query.end, comparisonStart: query.comparisonStart, comparisonEnd: query.comparisonEnd, category: query.category, method: query.method, explain: true, reference: false }, { now, timezone }) } catch { invalid() }
-    return { ...plan, task: query.task, targetPaise: query.targetPaise, thinking: query.task === "answer" ? "LOW" : "MEDIUM" }
+    try { plan = validateInterpretedIntent({ status: "resolved", intent: query.intent, start: query.start, end: query.end, comparisonStart: query.comparisonStart, comparisonEnd: query.comparisonEnd, category: query.category, method: query.method, explain: true, reference: false }, { now, timezone }) } catch { invalid("tool_scope", false) }
+    return { ...plan, task: query.task, targetPaise: query.targetPaise, reductionBps: query.reductionBps ?? null, thinking: query.task === "answer" ? "LOW" : "MEDIUM" }
   })
   // Coalesce the union once, including overlap between separate tool requests.
   const ranges = plans.flatMap((plan) => plan.retrieval.ranges).sort((a, b) => a.start.localeCompare(b.start))
@@ -43,20 +44,25 @@ export function validateDevelopmentPlan(output, { now, timezone }) {
     else merged.push({ ...range })
   }
   const start = merged[0].start, end = merged.at(-1).end
-  if (monthsBetween(monthStart(start), shiftMonth(shiftDay(end, -1), 1)) > MAX_RETRIEVAL_MONTHS) invalid()
+  if (monthsBetween(monthStart(start), shiftMonth(shiftDay(end, -1), 1)) > MAX_RETRIEVAL_MONTHS) invalid("tool_scope", false)
   return { clarify: false, plans, retrieval: { start, end, ranges: merged } }
 }
 
 export function validateDevelopmentContext(context, options) {
   if (context == null) return null
+  if (typeof context !== "object" || Array.isArray(context)) throw aiError("The development conversation scope is invalid. Start a new chat.", { status: 400, code: "DEVELOPMENT_CONTEXT_INVALID", origin: "conversation" })
   if (context.version === 1) {
     try {
       const previous = validateConversationContext(context, { asOf: localDateKey(options.now, options.timezone) })
       return { version: 2, queries: [developmentQuery({ ...previous, task: "answer" })] }
-    } catch { throw aiError("The previous local scope is invalid. Start a new chat.", { status: 400, code: "DEVELOPMENT_CONTEXT_INVALID" }) }
+    } catch { throw aiError("The previous local scope is invalid. Start a new chat.", { status: 400, code: "DEVELOPMENT_CONTEXT_INVALID", origin: "conversation" }) }
   }
-  if (context.version !== 2 || Object.keys(context).some((key) => !["version", "queries"].includes(key))) throw aiError("Start a new chat to reset the development conversation scope.", { status: 400, code: "DEVELOPMENT_CONTEXT_INVALID" })
-  try { return { version: 2, queries: validateDevelopmentPlan({ status: "resolved", queries: context.queries }, options).plans.map(developmentQuery) } } catch { throw aiError("The development conversation scope is invalid. Start a new chat.", { status: 400, code: "DEVELOPMENT_CONTEXT_INVALID" }) }
+  if (context.version !== 2 || Object.keys(context).some((key) => !["version", "queries"].includes(key))) throw aiError("Start a new chat to reset the development conversation scope.", { status: 400, code: "DEVELOPMENT_CONTEXT_INVALID", origin: "conversation" })
+  try {
+    const validated = validateDevelopmentPlan({ status: "resolved", queries: context.queries }, options)
+    if (validated.clarify) throw new Error("A conversation scope needs a resolved query")
+    return { version: 2, queries: validated.plans.map(developmentQuery) }
+  } catch { throw aiError("The development conversation scope is invalid. Start a new chat.", { status: 400, code: "DEVELOPMENT_CONTEXT_INVALID", origin: "conversation" }) }
 }
 
 export function developmentContext(plans) {

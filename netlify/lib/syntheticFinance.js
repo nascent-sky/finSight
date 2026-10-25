@@ -25,5 +25,5 @@ export function prepareSyntheticConversation({ questionId, history = [] }) {
     context = conversationContextFromPlan(plan)
   }
   plan.route = "cloud"
-  return { plan, analysis: analyseFinancialQuery(index, plan), questions, history: ids }
+  return { plan, analysis: analyseFinancialQuery(index, plan), financialIndex: index, questions, history: ids }
 }

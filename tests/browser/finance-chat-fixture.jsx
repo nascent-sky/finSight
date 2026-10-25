@@ -51,7 +51,7 @@ export default function Fixture() {
       <output aria-label="QA request count">Requests: {calls.length}</output>
       <output aria-label="QA last question">Last question: {calls.at(-1) || "none"}</output>
     </div>
-    <FinanceChatSession key={guest ? "guest" : account} user={guest ? null : { ...user, uid: account }} isOnline={online} subscribeRecords={subscribeRecords} ask={ask} getCapabilities={getCapabilities} routeQuestion={routeQuestion} />
+    <FinanceChatSession user={guest ? null : { ...user, uid: account }} isAuthReady isOnline={online} subscribeRecords={subscribeRecords} ask={ask} getCapabilities={getCapabilities} routeQuestion={routeQuestion} />
   </div></BrowserRouter>
 }
 

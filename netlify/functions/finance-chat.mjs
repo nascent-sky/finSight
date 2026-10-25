@@ -2,12 +2,14 @@ import { verifyFirebaseToken } from "../lib/firebaseToken.js"
 import { retrieveFinancialRecords } from "../lib/financialRetrieval.js"
 import { explainWithGemini, explainSyntheticWithGemini, interpretSafeWithGemini, interpretWithGemini, requireGeminiConfiguration } from "../lib/geminiFinance.js"
 import { aiError } from "../lib/aiErrors.js"
-import { financeCapabilities, requireDevelopmentAccess } from "../lib/developmentPolicy.js"
+import { safeValidationDetails } from "../lib/modelValidation.js"
+import { financeCapabilities, financeDiagnostics, requireDevelopmentAccess } from "../lib/developmentPolicy.js"
 import { runDevelopmentConversation, validateDevelopmentMessages } from "../lib/developmentConversation.js"
 import { isContinuation, normalizeQuestion } from "../../src/features/finance-ai/questionLanguage.js"
 import { conversationContextFromPlan, localDateKey, planFinancialQuestion, validateConversationContext } from "../../src/features/finance-ai/questionPlanner.js"
 import { analyseFinancialQuery, createFinancialIndex, publicFinancialAnswer } from "../../src/features/finance-ai/financialEngine.js"
-import { FINANCE_ROUTING_VERSION } from "../../src/features/finance-ai/financeRouting.js"
+import { FINANCE_ROUTING_VERSION, isVerifiedNarrativeRecovery } from "../../src/features/finance-ai/financeRouting.js"
+import { appGuideResponse, findAppGuide } from "../../src/features/finance-ai/appGuidance.js"
 
 const MAX_BODY = 32 * 1024
 const json = (body, status = 200) => Response.json({ ...body, routingVersion: FINANCE_ROUTING_VERSION }, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Vary": "Origin" } })
@@ -49,6 +51,7 @@ export function createChatHandler({ env = process.env, fetcher = fetch, verifyTo
   const usage = new Map()
   return async (request) => {
     let release
+    let diagnostics
     try {
       if (request.method !== "POST") return json({ error: "Use POST to send a question." }, 405)
       const origins = [env.AI_ALLOWED_ORIGIN, env.URL, env.DEPLOY_PRIME_URL].filter(Boolean)
@@ -59,6 +62,9 @@ export function createChatHandler({ env = process.env, fetcher = fetch, verifyTo
       const uid = await verifyToken(token, env.FIREBASE_PROJECT_ID, fetcher)
       const body = await readBody(request)
       if (!body || typeof body !== "object" || Array.isArray(body)) fail("Send a valid chat request.")
+      // Diagnostics are available only after origin, authentication and JSON
+      // validation. They contain fixed states, never values or identifiers.
+      diagnostics = financeDiagnostics(env, uid, body.consent)
       if (body.action === "capabilities") {
         if (Object.keys(body).some((key) => key !== "action")) fail("Send only a capabilities request.")
         return json(financeCapabilities(env, uid))
@@ -72,7 +78,7 @@ export function createChatHandler({ env = process.env, fetcher = fetch, verifyTo
         const signal = AbortSignal.any([request.signal, AbortSignal.timeout(45000)])
         return json(await demonstrate({ env, questionId: body.questionId, history: body.history, signal }))
       }
-      const policy = financeCapabilities(env, uid)
+      const policy = financeCapabilities(env, uid, body.consent)
       const routingRequest = body.action === "route"
       // Questions are intent, never financial authority or an asserted identity.
       if (Object.keys(body).some((key) => !["mode", "messages", "timezone", "consent", "context", ...(routingRequest ? ["action"] : [])].includes(key))) fail("Send questions and a bounded conversation scope only; financial totals and user IDs are not accepted.")
@@ -99,12 +105,14 @@ export function createChatHandler({ env = process.env, fetcher = fetch, verifyTo
         release = takeUsage(usage, uid, now())
         const signal = AbortSignal.any([request.signal, AbortSignal.timeout(45000)])
         const result = await development({ env, uid, token, messages, context: body.context, timezone: body.timezone, now: instant, signal, retrieve, fetcher })
-        if (result.source !== "gemini_development" || result.fictionalDataOnly !== true || result.cloud?.status !== "used") fail("The development pipeline did not return a Gemini-generated answer. No local answer was substituted.", 502, "DEVELOPMENT_RESPONSE_MISMATCH", "provider")
+        if (result.fictionalDataOnly !== true || !(result.source === "gemini_development" && result.cloud?.status === "used" || isVerifiedNarrativeRecovery(result))) fail("The development pipeline did not return a Gemini-generated answer or explicit verified narrative recovery.", 502, "DEVELOPMENT_RESPONSE_MISMATCH", "provider")
         return json({ ...result, route: "development", policy })
       }
       const last = messages.at(-1).content
       const history = messages.slice(0, -1)
       const context = Object.hasOwn(body, "context") ? validateConversationContext(body.context, { asOf: localDateKey(instant, body.timezone) }) : undefined
+      const guide = findAppGuide(last)
+      if (guide) return json(appGuideResponse(guide, context || null))
       let plan = planFinancialQuestion(last, history, { now: instant, timezone: body.timezone, context })
       if (plan.route === "clarify") return json({ answer: plan.message, cards: [], asOf: plan.asOf, source: "local", context: plan.preserveContext ? context || null : null, cloud: { status: "not_requested" } })
       if (["cloud", "interpret"].includes(plan.route)) {
@@ -135,10 +143,12 @@ export function createChatHandler({ env = process.env, fetcher = fetch, verifyTo
       if (!interpreted) plan = planFinancialQuestion(last, history, { now: instant, timezone: body.timezone, categoryNames: index.categoryNames, context })
       const analysis = analyseFinancialQuery(index, plan)
       if (safeInterpretation || plan.route !== "cloud" || analysis.empty) return json({ ...publicFinancialAnswer(analysis), source: interpreted ? "gemini_intent" : "local", cloud: { status: interpreted ? "used" : "not_requested", ...(interpreted ? { stage: "interpretation", dataHandling: safeInterpretation ? "abstract_intent" : "paid" } : {}), ...(safeInterpretation ? { reason: "Gemini interpreted abstract query hints only. FinSight calculated this answer; explaining personal financial context still requires paid data handling." } : {}) } })
-      return json({ ...await explain({ env, plan, analysis, questions: messages.map((message) => message.content), signal }), context: conversationContextFromPlan(plan), cloud: { status: "used", stage: "explanation" } })
+      const explanation = await explain({ env, plan, analysis, financialIndex: index, questions: messages.map((message) => message.content), signal })
+      return json({ ...explanation, context: conversationContextFromPlan(plan), cloud: explanation.cloud || { status: "used", stage: "explanation" } })
     } catch (error) {
       // Never log tokens, questions, provider errors, or financial records.
-      return json({ error: error.status ? error.message : "FinSight AI could not complete the request. Please retry shortly.", code: error.code || "AI_REQUEST_FAILED", origin: error.origin || "application", ...(error.providerStatus ? { providerStatus: error.providerStatus } : {}) }, error.status || 503)
+      const validation = safeValidationDetails(error)
+      return json({ error: error.status ? error.message : "FinSight AI could not complete the request. Please retry shortly.", code: error.code || "AI_REQUEST_FAILED", origin: error.origin || "application", ...(error.providerStatus ? { providerStatus: error.providerStatus } : {}), ...(error.provider ? { provider: error.provider } : {}), ...(typeof error.retryable === "boolean" ? { retryable: error.retryable } : {}), ...(diagnostics ? { diagnostics } : {}), ...(validation ? { validation } : {}) }, error.status || 503)
     } finally { release?.() }
   }
 }

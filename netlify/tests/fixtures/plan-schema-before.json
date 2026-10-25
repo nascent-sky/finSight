@@ -1,0 +1,124 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "queries"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "resolved",
+        "clarify",
+        "guide"
+      ]
+    },
+    "guideId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "gpay_import",
+        null
+      ]
+    },
+    "queries": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "start",
+          "end",
+          "comparisonStart",
+          "comparisonEnd",
+          "category",
+          "method",
+          "task",
+          "targetPaise"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "enum": [
+              "expenses",
+              "income",
+              "cashflow",
+              "list",
+              "largest",
+              "categories",
+              "breakdown",
+              "percentages",
+              "comparison"
+            ]
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "comparisonStart": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "comparisonEnd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 80
+          },
+          "method": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "cash",
+              "upi",
+              null
+            ]
+          },
+          "task": {
+            "type": "string",
+            "enum": [
+              "answer",
+              "analyse",
+              "reduce"
+            ]
+          },
+          "targetPaise": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 9000000000000
+          },
+          "reductionBps": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 10000,
+            "description": "Explicit user-requested hypothetical percentage reduction in basis points, or null. Twenty percent is 2000. Never invent a rate."
+          }
+        }
+      }
+    }
+  }
+}

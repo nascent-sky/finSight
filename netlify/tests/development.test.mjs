@@ -67,8 +67,8 @@ test("example A preserves full multi-turn history, changes periods, explains dri
   const h = harness({ responses: [
     plan(query({ intent: "breakdown" })), explain("The largest categories are {{q0_c0_name}} at {{q0_c0_amount}} and {{q0_c1_name}} at {{q0_c1_amount}}."),
     plan(query({ intent: "breakdown", start: "2026-09-01", end: "2026-10-01", comparisonStart: "2026-10-01", comparisonEnd: "2026-11-01" })), explain("For {{q0_period}}, test spending was {{q0_current_expenses}}.", ["q0_expenses"]),
-    plan(query({ intent: "comparison", task: "analyse", ...comparison })), explain("The recorded increase was {{q0_expense_change}}. The largest category contribution was {{q0_driver0}}; records do not establish the cause.", ["q0_expenses"]),
-    plan(query({ intent: "breakdown", task: "reduce", ...comparison })), explain("Review flexible costs in {{q0_c1_name}}. A hypothetical reduction could free {{q0_c1_cut10}} over the requested period; essential costs may be inflexible."),
+    plan(query({ intent: "comparison", task: "analyse", ...comparison })), explain("The recorded increase was {{q0_comparison_change}}. The largest category contribution was {{q0_driver0}}; records do not establish the cause.", ["q0_expenses"]),
+    plan(query({ intent: "breakdown", task: "reduce", ...comparison })), explain("Review the recorded purchases before choosing which costs can safely change."),
   ] })
   let context = null
   const history = []
@@ -82,11 +82,13 @@ test("example A preserves full multi-turn history, changes periods, explains dri
   assert.equal(h.calls.length, 8)
   assert.equal(h.calls[2].context.sessionScope.queries[0].intent, "breakdown")
   assert.equal(h.calls[4].context.messages[1].role, "assistant")
-  assert.equal(h.calls[5].context.facts.q0_expense_change.value, "+₹1,850")
+  assert.equal(h.calls[5].context.facts.q0_comparison_change.value, "+₹1,850")
+  assert.equal(h.calls[5].context.facts.q0_expense_change, undefined)
   assert.match(h.calls[5].context.facts.q0_driver0.value, /Food & Dining.*1,150/)
   assert.equal(h.calls[5].body.generationConfig.thinkingConfig.thinkingLevel, "MEDIUM")
   assert.equal(h.calls[7].body.generationConfig.thinkingConfig.thinkingLevel, "MEDIUM")
-  assert.match(history.at(-1).content, /₹395/)
+  assert.equal(h.calls[7].context.facts.q0_c1_cut10, undefined)
+  assert.match(history.at(-1).content, /recorded purchases/)
   assert.equal(context.queries[0].start, "2026-10-01")
 })
 
@@ -264,13 +266,19 @@ test("cancellation during retry backoff prevents another SDK request", async () 
   assert.equal(calls, 1)
 })
 
-test("invented financial figures, malformed cards and unknown facts fail closed after calculation", async () => {
-  for (const output of [explain("You spent ₹999."), explain("{{q0_fabricated}}"), explain("Recorded expenses changed.", ["unknown"]), { ...explain(), records: [] }]) {
-    const h = harness({ responses: [plan(query()), output] })
+test("invented financial figures, malformed cards and unknown facts fail closed after one correction", async () => {
+  for (const [output, code, rule] of [[explain("You spent ₹999."), "GEMINI_NUMERIC_UNVERIFIED", "figure_unverified"], [explain("{{q0_fabricated}}"), "GEMINI_FACT_REFERENCE_INVALID", "fact_unknown"], [{ answer: [] }, "GEMINI_NARRATIVE_TYPE_INVALID", "narrative_type"]]) {
+    const h = harness({ responses: [plan(query()), output, output] })
     const response = await h.run(request(payload()))
     assert.equal(response.status, 502)
-    assert.equal((await response.json()).code, "GEMINI_OUTPUT_INVALID")
-    assert.equal(h.calls.length, 2)
+    const result = await response.json()
+    assert.equal(result.code, code)
+    assert.equal(result.origin, "model_output")
+    assert.equal(result.validation.stage, "explanation")
+    assert.equal(result.validation.rule, rule)
+    assert.equal(result.validation.correctionAttempted, true)
+    assert.equal(result.validation.field, "answer")
+    assert.equal(h.calls.length, 3)
     assert.equal(h.reads.length, 1)
   }
 })

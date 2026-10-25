@@ -1,6 +1,8 @@
 import { calculateComparison, MAX_MONEY_PAISE } from "./financialContext.js"
 import { formatExpenseAmount } from "../../components/analytics/expenseChartUtils.js"
 import { conversationContextFromPlan, localDateKey, monthStart, monthsBetween, shiftDay, shiftMonth } from "./questionPlanner.js"
+import { buildFinancialPresentation } from "./financialPresentation.js"
+import { chronologicalComparison } from "./responseBlocks.js"
 
 const money = (paise) => formatExpenseAmount(paise / 100)
 const percentage = (part, total) => total ? Math.round(part / total * 1000) / 10 : null
@@ -142,7 +144,14 @@ export function analyseFinancialQuery(index, plan) {
     put("income_change", "Signed change in recorded income", money(stats.incomePaise - prior.incomePaise))
     if (hasRelevantRecords) {
       const id = incomeComparison ? "income" : "expenses"
-      cards[id] = { id, title: comparisonSubject, previousLabel: plan.comparison.label, currentLabel: plan.period.label, note, ...comparison }
+      cards[id] = { id, title: comparisonSubject, previousLabel: plan.comparison.label, currentLabel: plan.period.label, previousStart: plan.comparison.start, currentStart: plan.period.start, metric: incomeComparison ? "income" : "expense", note, ...comparison }
+      const chronological = chronologicalComparison(cards[id])
+      put("comparison_previous_period", "Earlier period in the chronological comparison card", chronological.previousLabel)
+      put("comparison_current_period", "Later period in the chronological comparison card", chronological.currentLabel)
+      put("comparison_previous_amount", "Verified amount in the earlier comparison period", money(chronological.previousPaise))
+      put("comparison_current_amount", "Verified amount in the later comparison period", money(chronological.currentPaise))
+      put("comparison_change", "Verified later minus earlier amount; matches the chronological comparison card", `${chronological.changePaise > 0 ? "+" : ""}${money(chronological.changePaise)}`)
+      put("comparison_percentage", "Verified chronological change percentage; N/A when the earlier recorded amount is zero", chronological.percentage == null ? "N/A" : `${chronological.percentage > 0 ? "+" : ""}${chronological.percentage}%`)
     }
     if (plan.route === "cloud" && !plan.category) {
       const names = new Set([...stats.categories, ...prior.categories].map((category) => category.name))
@@ -176,9 +185,11 @@ export function analyseFinancialQuery(index, plan) {
     if (drivers.length) answer += `\nLargest recorded category increases:\n${drivers.map((category) => `• ${category.name}: +${money(category.change)}`).join("\n")}\nThese entries show contributions to the change; they do not establish why the spending occurred.`
   }
   if (hasRelevantRecords && partial && !/to date/.test(plan.period.label)) answer += `\n\nRecords through ${plan.asOf}; this period is incomplete.`
-  return { answer, cards: Object.values(cards), facts, cardMap: cards, stats, series, empty: !hasRelevantRecords, note, asOf: plan.asOf, source: "local", context: conversationContextFromPlan(plan) }
+  const analysis = { answer, cards: Object.values(cards), facts, cardMap: cards, stats, series, empty: !hasRelevantRecords, note, asOf: plan.asOf, source: "local", context: conversationContextFromPlan(plan) }
+  analysis.presentation = buildFinancialPresentation(analysis, plan)
+  return analysis
 }
 
 export function publicFinancialAnswer(analysis) {
-  return { answer: analysis.answer, cards: analysis.cards, asOf: analysis.asOf, source: analysis.source, context: analysis.context }
+  return { answer: analysis.answer, cards: analysis.cards, asOf: analysis.asOf, source: analysis.source, context: analysis.context, ...(analysis.presentation ? { presentation: analysis.presentation } : {}) }
 }

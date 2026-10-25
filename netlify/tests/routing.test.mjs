@@ -20,6 +20,7 @@ const records = [tx("food", 3450, "2026-10-03"), tx("shopping", 900, "2026-10-05
 const query = (extra = {}) => ({ intent: "breakdown", start: "2026-10-01", end: "2026-11-01", comparisonStart: null, comparisonEnd: null, category: null, method: null, task: "answer", targetPaise: null, ...extra })
 const plan = (extra = {}) => ({ status: "resolved", queries: [query(extra)] })
 const answer = (text = "Verified test spending is {{q0_current_expenses}}.") => ({ answer: text, cardIds: [] })
+const conversation = (reply) => ({ status: "conversation", guideId: "", queries: [], clarification: "", reply })
 const forbiddenLocalIndex = { timezone, get records() { throw new Error("Local financial answer generation ran before Gemini") }, get categoryNames() { throw new Error("Local intent recognition ran before Gemini") } }
 
 function app({ steps = [], environment = {}, intercept, data = {} } = {}) {
@@ -220,6 +221,69 @@ test("Gemini generates clarification prose in the plan without a second cloud ca
   assert.equal(result.answer, "Which spending period would you like me to explain?")
   assert.equal(a.provider.length, 1)
   assert.equal(a.reads.length, 0)
+})
+
+test("Gemini social intents bypass retrieval and verified cards while financial follow-ups retain scope", async () => {
+  const socials = [
+    ["hey how you doing", "I'm here and ready to help. How are you doing?"],
+    ["Thanks, that helped!", "You're welcome!"],
+    ["My name is Alex", "Nice to meet you!"],
+    ["Tell me a joke", "Why did the notebook blush? It had too many personal notes."],
+  ]
+  const financial = (extra = {}) => plan({ category: "Food & Dining", method: "upi", ...extra })
+  const a = app({ steps: [financial(), answer(), ...socials.map(([, reply]) => conversation(reply)), financial({ start: "2026-09-01", end: "2026-10-01" }), answer(), financial({ start: "2026-09-01", end: "2026-10-01", comparisonStart: "2026-08-01", comparisonEnd: "2026-09-01", task: "analyse" }), { answer: "{{q0_record_status}}." }] })
+  const initial = await a.ask("Where did my money go?")
+  assert.ok(initial.presentation.blocks.some((block) => block.type === "categories"))
+  let context = initial.context
+  const history = [{ role: "user", content: "Where did my money go?" }, { role: "assistant", content: initial.answer }]
+  for (const [question, reply] of socials) {
+    const before = a.provider.length
+    const result = await a.ask(question, { context, history })
+    assert.equal(result.answer, reply)
+    assert.equal(result.source, "gemini_development")
+    assert.deepEqual(result.cards, [])
+    assert.ok(result.presentation.blocks.every((block) => block.type === "paragraph"))
+    assert.deepEqual(result.context, initial.context)
+    assert.equal(a.reads.length, 1)
+    assert.equal(a.provider.length, before + 1)
+    context = result.context
+    history.push({ role: "user", content: question }, { role: "assistant", content: reply })
+  }
+  const lastMonth = await a.ask("What about last month?", { context, history })
+  assert.equal(lastMonth.context.queries[0].start, "2026-09-01")
+  assert.equal(lastMonth.context.queries[0].category, "Food & Dining")
+  assert.match(lastMonth.answer, /₹2,800/)
+  const higher = await a.ask("Why was it higher?", { context: lastMonth.context })
+  assert.equal(higher.cards.length, 1)
+  assert.equal(higher.cards[0].currentPaise, 280000)
+  assert.equal(higher.cards[0].previousPaise, 0)
+  assert.doesNotMatch(higher.answer, /\.\./)
+  assert.equal(a.reads.length, 3)
+})
+
+test("a stale financial plan for a social message is corrected before any records or cards are built", async () => {
+  const a = app({ steps: [plan(), conversation("I'm here and happy to help!")] })
+  const result = await a.ask("hey how you doing", { context: { version: 2, queries: [query()] } })
+  assert.equal(result.answer, "I'm here and happy to help!")
+  assert.deepEqual(result.cards, [])
+  assert.equal(a.provider.length, 2)
+  assert.equal(a.provider[1].context.validationFeedback.rule, "conversation_intent")
+  assert.equal(a.reads.length, 0)
+  assert.equal(result.cloud.correctionAttempted, true)
+})
+
+test("conversation output cannot smuggle financial queries, unverified figures or display blocks", async () => {
+  for (const invalid of [
+    { ...conversation("Hello!"), queries: [query()] },
+    conversation("You spent ₹999."),
+    { ...conversation("Hello!"), blockIds: ["q0_categories"] },
+    conversation("<script>unsafe()</script>"),
+  ]) {
+    const a = app({ steps: [invalid, invalid] })
+    await assert.rejects(() => a.ask("hey how you doing"), { status: 502, origin: "model_output" })
+    assert.equal(a.reads.length, 0)
+    assert.equal(a.provider.length, 2)
+  }
 })
 
 test("eligibility is evaluated again per message instead of trusting a permanent page cache", async () => {

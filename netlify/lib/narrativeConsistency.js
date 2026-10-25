@@ -53,12 +53,13 @@ export function verifiedEvidenceStatement(item) {
   const s = item.current
   if (item.comparisons.length) {
     const c = item.comparisons[0]
-    const direction = c.changePaise > 0 ? "increased" : c.changePaise < 0 ? "decreased" : "was unchanged"
+    const direction = c.changePaise > 0 ? "increased" : c.changePaise < 0 ? "decreased" : "did not change"
     return `${c.title} ${direction}: ${c.previousLabel} ${money(c.previousPaise)} → ${c.currentLabel} ${money(c.currentPaise)}${c.percentage == null ? "; percentage N/A because the earlier amount was zero" : ""}.`
   }
-  const subject = item.intent === "income" ? "income records" : item.intent === "cashflow" ? "transactions" : "expenses"
+  const singular = item.intent === "income" ? "income record" : item.intent === "cashflow" ? "transaction" : "expense"
+  const subject = s.recordCount === 1 ? singular : `${singular}s`
   const amount = item.intent === "income" ? s.incomeTotalPaise : s.expenseTotalPaise
-  return s.recordCount ? `${s.recordCount} recorded ${subject} match ${s.label}${s.category ? ` · ${s.category}` : ""}${s.method ? ` · ${s.method.toUpperCase()}` : ""}${item.intent === "cashflow" ? "." : `, totalling ${money(amount)}.`}`
+  return s.recordCount ? `I found ${s.recordCount} recorded ${subject} for ${s.label}${s.category ? ` · ${s.category}` : ""}${s.method ? ` · ${s.method.toUpperCase()}` : ""}${item.intent === "cashflow" ? "." : `, totalling ${money(amount)}.`}`
     : `No recorded ${subject} match ${s.label}${s.category ? ` · ${s.category}` : ""}${s.method ? ` · ${s.method.toUpperCase()}` : ""}.`
 }
 

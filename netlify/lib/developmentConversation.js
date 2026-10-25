@@ -16,6 +16,7 @@ import { GEMINI_PLAN_FORMAT, normalizeGeminiPlan } from "./geminiRequestSchema.j
 import { narrativeFacts, prepareCloudLayout, purchaseDeferralRequested } from "./responseComposition.js"
 import { buildNarrativeEvidence, promptEvidence, verifiedStatusFacts } from "./narrativeConsistency.js"
 import { generateConsistentResponse, verifiedNarrativeRecovery } from "./narrativeRecovery.js"
+import { localConversationReply } from "../../src/features/finance-ai/questionLanguage.js"
 
 const money = (paise) => formatExpenseAmount(paise / 100)
 const scenarioPeriod = (plan) => `${plan.period.label}${plan.period.end > shiftDay(plan.asOf, 1) ? ` (recorded through ${plan.asOf}; incomplete period)` : ""}`
@@ -28,7 +29,8 @@ export function validateDevelopmentMessages(messages) {
   })
 }
 
-const PLAN_INSTRUCTIONS = `You are the read-only query planner for FinSight's allowlisted fictional-data development chat. Understand the COMPLETE current question and recent conversation, including typos, informal wording, dates, multiple parts and follow-ups. Do not answer yet and do not calculate financial figures.
+const PLAN_INSTRUCTIONS = `You are the read-only query planner for FinSight's allowlisted fictional-data development chat. Understand the COMPLETE current question and recent conversation, including typos, informal wording, dates, multiple parts and follow-ups. Do not answer financial questions yet and do not calculate financial figures.
+Classify the CURRENT message before selecting tools. Greetings, thanks, introductions, social check-ins and general non-financial chat use status conversation with no queries. Respond warmly in one or two short sentences in reply; do not repeat financial results, claim human experiences, echo identities, offer a spending report or force a budgeting question. Prior financial context alone is never a reason to retrieve records for a social message. A message that also asks a financial question still uses resolved queries. Genuine financial continuations such as 'What about last month?' and 'Why was it higher?' use sessionScope; social exchanges leave that scope available for the next financial question.
 Return up to three structured queries covering every requested part. Use separate queries for category comparisons, different scopes, or different metrics. No database paths, SQL, merchant/person/note filters, transaction edits or external actions are available. Ask for clarification rather than dropping an unsupported filter or question part.
 For questions about importing Google Pay/GPay transactions or uploading its statement PDF, return status guide, guideId gpay_import and an empty queries array. The supplied appGuides describe actual implemented application features; no financial retrieval is needed for application guidance. For financial requests use an empty guideId string.
 start is inclusive and end exclusive, in the supplied local timezone. First week of a named month means days one through seven: e.g. October 2026 starts 2026-10-01 and ends 2026-10-08. Last week means the previous Monday–Sunday. Resolve other absolute/relative dates yourself. Never silently shorten a period; the combined scope is limited to thirty-six calendar months.
@@ -141,13 +143,15 @@ export async function runDevelopmentConversation({ env, uid, token, messages, co
   const correction = { used: false }
   const toolRequest = await generateValidated({ generate, correction, stage: "planning", validate: (output) => {
     const request = validateDevelopmentPlan(normalizeGeminiPlan(output), { now, timezone })
-    if (!request.clarify) return request
+    if (localConversationReply(conversation.at(-1).content) && !request.conversation) throw modelValidationError("conversation_intent", "planning")
+    if (!request.clarify && !request.conversation) return request
+    const field = request.conversation ? "reply" : "clarification"
     // Gemini already wrote this in its plan. Apply the same no-facts narrative
     // checks before display, without another provider call just for wording.
-    try { return { ...request, reply: validateDevelopmentResponse({ answer: request.clarification }, { facts: {}, cardMap: {}, stage: "planning", clarification: true }) } }
+    try { return { ...request, response: validateDevelopmentResponse({ answer: request[field] }, { facts: {}, cardMap: {}, stage: "planning", clarification: true }) } }
     catch (error) {
       if (error.origin !== "model_output") throw error
-      throw modelValidationError(error.validation?.rule, "planning", { validator: "narrative", field: "clarification", expected: "final_text", receivedType: "string", repairable: error.repairable })
+      throw modelValidationError(error.validation?.rule, "planning", { validator: "narrative", field, expected: "final_text", receivedType: "string", repairable: error.repairable })
     }
   },
     args: { ...common, instructions: PLAN_INSTRUCTIONS, schema: DEVELOPMENT_PLAN_SCHEMA, thinking: "LOW", context: { dataMode: "development_fictional_only", messages: conversation, sessionScope, asOf, timezone, appGuides: APP_GUIDES } } })
@@ -159,8 +163,8 @@ export async function runDevelopmentConversation({ env, uid, token, messages, co
     if (!result.presentation.blocks.some((block) => block.type === "actions")) result.presentation = responsePresentation([...result.presentation.blocks, fallback.presentation.blocks.at(-1)])
     return { ...result, context: sessionScope, source: "gemini_development", fictionalDataOnly: true, cloud: { status: "used", stage: "development", dataHandling: "development", correctionAttempted: correction.used } }
   }
-  if (toolRequest.clarify) {
-    return { ...toolRequest.reply, asOf, source: "gemini_development", fictionalDataOnly: true, context: sessionScope, cloud: { status: "used", stage: "planning", dataHandling: "development", correctionAttempted: correction.used } }
+  if (toolRequest.clarify || toolRequest.conversation) {
+    return { ...toolRequest.response, asOf, source: "gemini_development", fictionalDataOnly: true, context: sessionScope, cloud: { status: "used", stage: "planning", dataHandling: "development", correctionAttempted: correction.used } }
   }
   const targets = requestedTargets(conversation, sessionScope)
   if (toolRequest.plans.some((plan) => plan.targetPaise != null && (plan.task !== "reduce" || !targets.has(plan.targetPaise)))) throw modelValidationError("unrequested_target", "planning", { repairable: false })

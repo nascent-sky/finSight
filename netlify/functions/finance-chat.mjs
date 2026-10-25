@@ -114,7 +114,7 @@ export function createChatHandler({ env = process.env, fetcher = fetch, verifyTo
       const guide = findAppGuide(last)
       if (guide) return json(appGuideResponse(guide, context || null))
       let plan = planFinancialQuestion(last, history, { now: instant, timezone: body.timezone, context })
-      if (plan.route === "clarify") return json({ answer: plan.message, cards: [], asOf: plan.asOf, source: "local", context: plan.preserveContext ? context || null : null, cloud: { status: "not_requested" } })
+      if (["clarify", "conversation"].includes(plan.route)) return json({ answer: plan.message, cards: [], asOf: plan.asOf, source: "local", context: plan.preserveContext ? context || null : null, cloud: { status: "not_requested" } })
       if (["cloud", "interpret"].includes(plan.route)) {
         if (body.consent !== true) fail("Enable Gemini cloud sharing before asking for interpretation or an explanation.", 403, "AI_CONSENT_REQUIRED", "privacy")
         requireGeminiConfiguration(env, { privateContext: false })

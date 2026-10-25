@@ -5,6 +5,8 @@ import { createFinancialIndex, analyseFinancialQuery } from "./financialEngine.j
 import { planFinancialQuestion, conversationContextFromPlan, validateConversationContext, validateInterpretedIntent } from "./questionPlanner.js"
 import { getMonthlyExpenseStats } from "../../components/analytics/expenseChartUtils.js"
 import { getMonthlyCashFlow } from "../../components/analytics/cashFlowTrendUtils.js"
+import { answerDemoQuestion } from "./demoAnalysis.js"
+import { resolveAnswer } from "./financialContext.js"
 
 const now = new Date("2026-10-24T12:00:00Z")
 const options = { now, timezone: "Asia/Kolkata" }
@@ -20,6 +22,60 @@ const index = createFinancialIndex(records, options)
 const plan = (question, context) => planFinancialQuestion(question, [], { ...options, categoryNames: index.categoryNames, context })
 const query = (question, context) => analyseFinancialQuery(index, plan(question, context))
 const ask = (question, context, extra = {}) => answerFinanceQuestion({ index, question, context, now, requestCloud: () => { throw new Error("unexpected cloud request") }, ...extra })
+
+test("local casual intents never calculate finances or discard the last financial scope", async () => {
+  const scope = (await ask("Show food spending via UPI", null)).context
+  const noCalculations = { timezone: options.timezone, categoryNames: [], get records() { throw new Error("Casual chat must not calculate financial records") } }
+  for (const question of ["hey how you doing", "How are you doing today?", "How about you?", "Thanks, that helped!", "My name is Alex", "I'm Alex", "Who are you?", "Good morning", "I'm good thanks"]) {
+    const result = await ask(question, scope, { index: noCalculations })
+    assert.deepEqual(result.cards, [], question)
+    assert.equal(result.presentation, undefined)
+    assert.deepEqual(result.context, scope)
+    assert.doesNotMatch(result.answer, /₹|recorded expenses|spending breakdown|totalling/)
+    assert.equal(result.cloud.status, "not_requested")
+  }
+  const social = await ask("How about you?", scope)
+  const lastMonth = await ask("What about last month?", social.context)
+  assert.equal(lastMonth.context.period.start, "2026-09-01")
+  assert.equal(lastMonth.context.category, "Food & Dining")
+  assert.equal(lastMonth.context.method, "upi")
+  const higher = await ask("Why was it higher?", lastMonth.context)
+  assert.equal(higher.cards.length, 1)
+  assert.equal(higher.context.category, "Food & Dining")
+  assert.equal(higher.context.period.start, "2026-09-01")
+})
+
+test("courtesies around a financial question do not turn it into small talk", async () => {
+  for (const question of ["Hey, how much did I spend today?", "Show my expenses today, thanks!"]) {
+    const result = await ask(question, null)
+    assert.match(result.answer, /₹300.3/)
+    assert.equal(result.context.period.start, "2026-10-24")
+    assert.ok(result.presentation.blocks.some((block) => block.type === "metric"))
+  }
+  assert.notEqual(plan("I'm concerned about my subscriptions").route, "conversation")
+})
+
+test("guest casual replies stay brief and resume the same sample financial context", async () => {
+  const initial = await answerDemoQuestion({ question: "Where did my money go?" })
+  const social = await answerDemoQuestion({ question: "hey how you doing", context: initial.context })
+  assert.deepEqual(social.context, initial.context)
+  assert.deepEqual(social.cards, [])
+  assert.equal(social.presentation, undefined)
+  assert.doesNotMatch(social.answer, /₹|fictional finances|recorded/)
+  const lastMonth = await answerDemoQuestion({ question: "What about last month?", context: social.context })
+  assert.match(lastMonth.answer, /₹10,200/)
+  assert.equal(lastMonth.context.scope.period.start, "2026-09-01")
+})
+
+test("financial summaries agree with singular records and income, and placeholder punctuation preserves decimals", async () => {
+  const list = await ask("List food expenses last month", null)
+  assert.match(list.answer, /^1 recorded expense for September/)
+  const income = await ask("Compare income this month with last month", null)
+  assert.match(income.answer, /^Recorded income was /)
+  const facts = { statement: { value: "I found a recorded expense." }, amount: { value: "₹100.25" } }
+  assert.equal(resolveAnswer("{{statement}}. The amount is {{amount}}.", facts), "I found a recorded expense. The amount is ₹100.25.")
+  assert.equal(resolveAnswer("Is it {{amount}}?", facts), "Is it ₹100.25?")
+})
 
 test("reported biggest expenses and typo rank genuine expenses in the requested month", () => {
   const result = query("Show my biggest expenses")

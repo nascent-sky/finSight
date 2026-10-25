@@ -27,6 +27,24 @@ export function normalizeQuestion(value) {
 
 export const isContinuation = (text) => /\b(?:it|that|those|these|them|same)\b/.test(text) && /reduc|compar|show|list|explain|spen[dt]|cost|biggest|largest|contribut|sav|total/.test(text)
   || /what about|how about|month before that|which transactions contributed most|^(?:and )?(?:last|previous|this) (?:month|week)[?.!]*$|^(?:and )?(?:january|february|march|april|may|june|july|august|september|october|november|december)(?: 20\d{2})?[?.!]*$/.test(text)
+  || /^(?:and )?why(?:[?.!]*$|\b.*\b(?:higher|lower|more|less|increased|decreased)\b)/.test(text)
+
+// Conservative local/offline social intents. Cloud conversations are classified
+// semantically by Gemini; these complete-utterance matches never override a
+// financial request or a relative financial follow-up in a mixed message.
+export function localConversationReply(value) {
+  const text = normalizeQuestion(value).replace(/[,.!?;:]+/g, " ").trim()
+  if (/\b(?:spend|spent|spending|expenses?|income|earn|transactions?|purchases?|money|wallet|budget|sav(?:e|ing|ings)|cash|upi|costs?|bills?|rent|salary|debt|invest|categor\w*|compar\w*|reduc\w*|higher|lower)\b|[₹\d]/.test(text)) return null
+  if (/^(?:(?:hi|hello|hey)(?: there)?\s+)?(?:how (?:are you(?: doing)?|you (?:doing|doin))|hows (?:it going|your day)|how about you|what about you|whats up|how was your day)(?:\s+today)?$/.test(text)) return "I'm here and ready to help. How are you doing?"
+  if (/^(?:thanks?(?: you)?|thank you|cheers|appreciate (?:it|your help))(?:\s+(?:so much|a lot|that helped|for your help))?$/.test(text)) return "You're welcome! Happy to help."
+  if (/^(?:im|i am|i feel) (?:good|fine|great|well|okay|ok|tired|happy|sad)(?:\s+(?:thanks|thank you|too))?$/.test(text)) return "Thanks for sharing. I'm here if you'd like a hand with anything."
+  if (/^(?:(?:hi|hello|hey)\s+)?my name is\s+[a-z][a-z -]{0,60}$/.test(text) || /^(?:I['’]m|I am) [A-Z][a-z]+(?: [A-Z][a-z]+){0,2}[.!]*$/.test(String(value).trim())) return "Nice to meet you! How can I help?"
+  if (/^(?:hi|hello|hey)(?: there| again)?$/.test(text)) return "Hi! How can I help?"
+  if (/^(?:what can you do|who are you|tell me about yourself)$/.test(text)) return "I'm FinSight AI. I can help you explore spending, compare periods and think through ways to save."
+  if (/^good (?:morning|afternoon|evening)$/.test(text)) return "Hello! How can I help?"
+  if (/^(?:good night|have a (?:good|nice) day|bye|goodbye|see you(?: later)?)$/.test(text)) return "Take care! I'm here whenever you need a hand."
+  return null
+}
 
 // Unconsumed meaning must reach interpretation/clarification instead of quietly
 // disappearing into a default monthly total (e.g. a person's name or 'median').

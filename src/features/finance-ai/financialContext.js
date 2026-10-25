@@ -36,7 +36,12 @@ export function resolveAnswer(answer, facts, { qualitativeCounts = false } = {})
   const prose = qualitativeCounts ? stripped.replace(/\b(?:one|two|three|four|five|six|seven|eight|nine|ten)(?:\s+(?:practical|small|simple|possible|useful|specific|suggested)){0,2}\s+(?:ways?|steps?|improvements?|options?|ideas?|suggestions?|changes?|recommendations?)\b/gi, "") : stripped
   const numericWords = /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|millions?|billions?|lakhs?|crores?|percent|rupees?|inr)\b/i
   if (/[\p{N}₹%]/u.test(prose) || numericWords.test(prose)) invalid("figure_unverified", "The AI returned an unverified figure. Please retry.")
-  const resolved = answer.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (_, key) => facts[key].value)
+  // A complete verified sentence already includes its final punctuation.
+  // Only coalesce the placeholder boundary; decimals and prose stay intact.
+  const resolved = answer.replace(/\{\{([a-zA-Z0-9_]+)\}\}([.!?])?/g, (_, key, punctuation = "") => {
+    const value = String(facts[key].value)
+    return value.endsWith(punctuation) ? value : value + punctuation
+  })
   if (resolved.length > 9000) invalid("answer_too_long", "The AI returned an answer that is too long. Please retry.")
   return resolved
 }

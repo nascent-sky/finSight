@@ -48,7 +48,7 @@ function inspectRequest(url, body, options) {
     // Planning remains its own typed read-only query request, never mixed with
     // final formatting or SDK function-calling declarations.
     assertSimpleResponseSchema(config.responseJsonSchema)
-    assert.deepEqual(config.responseJsonSchema.required, ["status", "guideId", "queries", "clarification"])
+    assert.deepEqual(config.responseJsonSchema.required, ["status", "guideId", "queries", "clarification", "reply"])
     assert.equal(config.responseJsonSchema.properties.queries.items.properties.targetPaise.type, "integer")
     for (const property of Object.values(config.responseJsonSchema.properties.queries.items.properties)) assert.equal(Array.isArray(property.type), false)
   }

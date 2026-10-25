@@ -67,7 +67,7 @@ function scopeStats(index, scope, plan) {
 }
 
 export function analyseFinancialQuery(index, plan) {
-  if (["clarify", "interpret"].includes(plan.route)) return { answer: plan.message, cards: [], asOf: plan.asOf, source: "local", context: null }
+  if (["clarify", "interpret", "conversation"].includes(plan.route)) return { answer: plan.message, cards: [], asOf: plan.asOf, source: "local", context: null }
   const stats = scopeStats(index, plan.period, plan)
   const prior = plan.comparison ? scopeStats(index, plan.comparison, plan) : null
   const hasRelevantRecords = plan.intent === "income" ? stats.incomePaise > 0 || prior?.incomePaise > 0
@@ -168,7 +168,7 @@ export function analyseFinancialQuery(index, plan) {
   else if (plan.intent === "list") {
     const ordered = [...stats.expenses].sort((a, b) => b.at - a.at || a.id.localeCompare(b.id))
     const shown = ordered.slice(0, 50)
-    answer = `${stats.expenses.length} recorded expenses for ${plan.period.label}${plan.category ? ` in ${plan.category}` : ""}${plan.method ? ` via ${plan.method.toUpperCase()}` : ""}, totalling ${money(stats.expensePaise)}:\n${shown.map((record) => `• ${transactionLine(record)}`).join("\n")}${ordered.length > shown.length ? `\nShowing the latest ${shown.length} of ${ordered.length} matching expenses. Narrow the date range to see the remaining records; the total includes all matches.` : ""}`
+    answer = `${stats.expenses.length} recorded expense${stats.expenses.length === 1 ? "" : "s"} for ${plan.period.label}${plan.category ? ` in ${plan.category}` : ""}${plan.method ? ` via ${plan.method.toUpperCase()}` : ""}, totalling ${money(stats.expensePaise)}:\n${shown.map((record) => `• ${transactionLine(record)}`).join("\n")}${ordered.length > shown.length ? `\nShowing the latest ${shown.length} of ${ordered.length} matching expenses. Narrow the date range to see the remaining records; the total includes all matches.` : ""}`
   }
   else if (plan.intent === "largest") answer = stats.largest.length ? `Your largest recorded expenses for ${plan.period.label}${plan.category ? ` in ${plan.category}` : ""}${plan.method ? ` via ${plan.method.toUpperCase()}` : ""}:\n${stats.largest.map((record) => `• ${transactionLine(record)}`).join("\n")}${stats.expenses.length > 5 ? `\nShowing the largest 5 of ${stats.expenses.length} matching expenses.` : ""}` : `No matching expense records were found for ${plan.period.label}.`
   else if (plan.intent === "cashflow") answer = `For ${plan.period.label}, you recorded ${money(stats.incomePaise)} in income and ${money(stats.expensePaise)} in expenses. Net cash flow is ${money(stats.netPaise)}. This is not your account balance.`
@@ -178,7 +178,7 @@ export function analyseFinancialQuery(index, plan) {
     const before = incomeComparison ? prior.incomePaise : prior.expensePaise
     const after = incomeComparison ? stats.incomePaise : stats.expensePaise
     const change = calculateComparison(before, after)
-    answer = `${comparisonSubject} were ${money(after)} for ${plan.period.label}, compared with ${money(before)} for ${plan.comparison.label}. ${change.changePaise === 0 ? "The recorded amounts are unchanged." : `That is ${money(Math.abs(change.changePaise))} ${change.changePaise > 0 ? "more" : "less"}${change.percentage == null ? "; a percentage change is unavailable without a previous recorded amount" : ` (${Math.abs(change.percentage)}%)`}.`}`
+    answer = `${comparisonSubject} ${incomeComparison ? "was" : "were"} ${money(after)} for ${plan.period.label}, compared with ${money(before)} for ${plan.comparison.label}. ${change.changePaise === 0 ? "The recorded amounts are unchanged." : `That is ${money(Math.abs(change.changePaise))} ${change.changePaise > 0 ? "more" : "less"}${change.percentage == null ? "; a percentage change is unavailable without a previous recorded amount" : ` (${Math.abs(change.percentage)}%)`}.`}`
   } else answer = `You recorded ${money(stats.expensePaise)} in ${plan.category ? `${plan.category} expenses` : "expenses"} for ${plan.period.label}${plan.method ? ` via ${plan.method.toUpperCase()}` : ""}.`
   if (hasRelevantRecords && plan.task === "analyse" && prior && plan.intent !== "income") {
     const drivers = stats.categories.map((category) => ({ ...category, change: category.paise - (prior.categories.find((other) => other.name === category.name)?.paise || 0) })).filter((category) => category.change > 0).sort((a, b) => b.change - a.change).slice(0, 3)

@@ -219,6 +219,22 @@ test("the actual page respects auth loading and then automatically selects the r
   assert.equal(h.calls.routes.length, 0) // consent remains off
 })
 
+test("casual replies after a breakdown do not repeat financial cards in guest or local account chats", async () => {
+  for (const user of [null, alice]) {
+    const h = await ui({ user })
+    await h.click("Where did my money go?")
+    assert.equal(h.container.querySelectorAll(".ai-categories").length, 1)
+    await h.askText("hey how you doing")
+    assert.match(h.assistant().at(-1), /How are you doing/)
+    assert.doesNotMatch(h.assistant().at(-1), /₹|recorded|fictional finances/)
+    assert.equal(h.container.querySelectorAll(".ai-categories").length, 1)
+    const reply = [...h.container.querySelectorAll(".ai-message-assistant")].at(-1)
+    assert.equal(reply.querySelector(".ai-categories, .ai-metric, .ai-comparison"), null)
+    assert.equal(h.calls.routes.length, 0)
+    assert.equal(h.calls.cloud, 0)
+  }
+})
+
 test("development UI keeps test-only consent without developer diagnostics or configuration payloads", async () => {
   const h = await ui({ user: alice }, { getCapabilities: async () => ({ ...developmentPolicy, code: "PRIVATE_CONFIGURATION_CODE", diagnostics: { internalConfiguration: "PRIVATE_CONFIGURATION_VALUE" }, reasons: [{ code: "TEST_UID_ALLOWLIST", message: "UID allowlist details" }] }) })
   assert.match(h.text(), /Use only fictional data with Gemini/)

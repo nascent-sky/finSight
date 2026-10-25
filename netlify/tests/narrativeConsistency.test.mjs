@@ -8,7 +8,7 @@ import { createFinancialIndex, analyseFinancialQuery } from "../../src/features/
 import { validateInterpretedIntent } from "../../src/features/finance-ai/questionPlanner.js"
 import { createFinanceChatClient } from "../../src/services/financeChatClient.js"
 import { financeSourceLabel, isVerifiedNarrativeRecovery, validateDevelopmentAnswer } from "../../src/features/finance-ai/financeRouting.js"
-import { buildNarrativeEvidence, verifiedStatusFacts, assertNarrativeConsistent } from "../lib/narrativeConsistency.js"
+import { buildNarrativeEvidence, verifiedStatusFacts, assertNarrativeConsistent, verifiedEvidenceStatement } from "../lib/narrativeConsistency.js"
 import { validateDevelopmentResponse } from "../lib/developmentResponse.js"
 
 const uid = "PRIVATE-uid", token = "PRIVATE-token", now = new Date("2026-10-25T12:00:00Z")
@@ -25,6 +25,13 @@ function receipt(extra = {}) {
   return { p, analysis, evidence, facts }
 }
 const contradiction = "For the requested period, there are no recorded transactions available to display your largest expenses."
+
+test("verified summaries use singular and plural record nouns with complete sentences", () => {
+  const single = receipt({ intent: "expenses", category: "Education" })
+  assert.equal(verifiedEvidenceStatement(single.evidence[0]), "I found 1 recorded expense for October 2026 · Education, totalling ₹2,000.")
+  const plural = receipt()
+  assert.match(verifiedEvidenceStatement(plural.evidence[0]), /^I found 13 recorded expenses for October 2026/)
+})
 
 function app(steps) {
   const calls = [], reads = [], responses = []

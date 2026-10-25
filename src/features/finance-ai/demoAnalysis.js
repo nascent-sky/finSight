@@ -46,7 +46,7 @@ export async function answerDemoQuestion({ question, history = [], context = nul
   const analysis = analyseFinancialQuery(index, plan)
   const result = publicFinancialAnswer(analysis)
   const presentation = result.presentation ? responsePresentation(result.presentation.blocks.filter((block) => block.type !== "actions").map((block) => block.type === "comparison" ? { ...block, card: { ...block.card, title: `Sample · ${block.card.title}` } } : block)) : undefined
-  return { ...result, ...(presentation ? { presentation } : {}), answer: `Sample data · fictional finances\n\n${result.answer}`, source: "demo_local", context: { version: "demo-v1", scope: result.context || (plan.preserveContext ? context?.scope : null) || null },
+  return { ...result, ...(presentation ? { presentation } : {}), answer: plan.route === "conversation" ? result.answer : `Sample data · fictional finances\n\n${result.answer}`, source: "demo_local", context: { version: "demo-v1", scope: result.context || (plan.preserveContext ? context?.scope : null) || null },
     cards: result.cards.map((card) => ({ ...card, title: `Sample · ${card.title}`, note: `Fictional sample data. ${card.note || ""}` })),
     cloud: { status: "not_requested", dataHandling: "local_demo" } }
 }

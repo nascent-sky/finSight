@@ -1,6 +1,7 @@
 import { aiError } from "./aiErrors.js"
 
 const rules = {
+  conversation_intent: ["GEMINI_CONVERSATION_INTENT_INVALID", "The current message is social conversation. Return status conversation with a brief reply and no queries; do not turn prior financial scope into a new financial request."],
   json_invalid: ["GEMINI_OUTPUT_INVALID", "The model returned unreadable JSON. Return the requested JSON schema only."],
   response_schema: ["GEMINI_OUTPUT_INVALID", "Return a JSON object with a nonempty answer string. Optional blockIds may be omitted; do not construct UI objects."],
   narrative_missing: ["GEMINI_NARRATIVE_MISSING", "Return the required answer string, not a financial plan or UI object."],
@@ -41,7 +42,7 @@ const stages = ["planning", "explanation", "clarification", "generation", "synth
 const validators = ["sdk_extraction", "json_parser", "response_envelope", "narrative", "financial_claim", "legacy_block", "presentation"]
 const expectedTypes = ["object", "string", "nonempty_string", "bounded_string", "array", "boolean", "empty_string", "empty_array", "false", "supported_kind", "supported_block", "known_fields", "prepared_block_id", "final_text", "valid_json", "complete_output", "verified_financial_claim", "valid_presentation"]
 const receivedTypes = ["missing", "null", "string", "number", "boolean", "array", "object", "empty", "truncated", "tool_call", "blocked", "unknown"]
-const safeField = (field) => typeof field === "string" && /^(?:\$|answer|clarification|sections(?:\[\d{1,2}\])?(?:\.(?:kind|text))?|blocks(?:\[\d{1,2}\])?(?:\.(?:type|kind|text|title|id|estimateId|ordered|items))?|cardIds|blockIds|presentation|candidates\[0\](?:\.content\.parts|\.finishReason)?)$/.test(field)
+const safeField = (field) => typeof field === "string" && /^(?:\$|answer|clarification|reply|sections(?:\[\d{1,2}\])?(?:\.(?:kind|text))?|blocks(?:\[\d{1,2}\])?(?:\.(?:type|kind|text|title|id|estimateId|ordered|items))?|cardIds|blockIds|presentation|candidates\[0\](?:\.content\.parts|\.finishReason)?)$/.test(field)
 export const responseValueType = (value) => value === undefined ? "missing" : value === null ? "null" : Array.isArray(value) ? "array" : typeof value
 
 function safeLocation(detail) {

@@ -1,5 +1,5 @@
 import { TRANSACTION_CATEGORIES } from "../../components/transactions/transactionCategories.js"
-import { normalizeQuestion, isContinuation, hasUnresolvedMeaning } from "./questionLanguage.js"
+import { normalizeQuestion, isContinuation, hasUnresolvedMeaning, localConversationReply } from "./questionLanguage.js"
 
 export const MAX_RETRIEVAL_MONTHS = 36
 const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
@@ -141,9 +141,11 @@ function resolvePeriod(question, asOf, previous, broad) {
 }
 
 function resolveOne(question, previous, { asOf, categoryNames }) {
-  const text = normalize(question)
+  let text = normalize(question)
   if (!text || text.length > 1200) return { route: "clarify", message: "Please send a question of up to 1,200 characters." }
-  if (/^(hi|hello|hey|thanks|thank you)[!. ]*$/.test(text)) return { route: "clarify", message: "I can help you understand recorded spending, compare periods, and explore ways to save. What would you like to look at?" }
+  const social = localConversationReply(question)
+  if (social) return { route: "conversation", message: social, preserveContext: true }
+  text = text.replace(/^(?:hi|hello|hey)(?: there)?[ ,!.]+/, "").replace(/[,! .]+(?:thanks|thank you)[!. ]*$/, "")
   const followup = isContinuation(text)
   const clarify = (message) => ({ route: "clarify", message, preserveContext: followup })
   if (followup && !previous && !/expense|spen[dt]|income|purchas|food|cash flow/.test(text)) return clarify("What spending or result do you mean? Choose expenses, income, a category, or a period to start.")

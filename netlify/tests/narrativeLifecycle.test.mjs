@@ -101,13 +101,12 @@ test("all requested questions traverse SDK → parsing → tools → verified ri
     context = result.context
     history.push({ role: "user", content: question }, { role: "assistant", content: result.answer })
   }
-  const list = results[0].presentation.blocks.find((block) => block.type === "list")
-  assert.equal(list.ordered, true)
-  assert.match(list.items[0], /₹3,450/)
-  assert.match(list.items[1], /₹900/)
+  const list = results[0].presentation.blocks.find((block) => block.type === "ranked_expenses")
+  assert.equal(list.items[0].amountPaise, 345000)
+  assert.equal(list.items[1].amountPaise, 90000)
   assert.match(render(results[0]), /<ol/)
   assert.equal(results[1].presentation.blocks.find((block) => block.type === "categories").totalPaise, 435000)
-  assert.ok(results[2].presentation.blocks.some((block) => block.type === "recommendation" && block.estimate?.hypothetical && block.estimate.savingPaise === 90000))
+  assert.ok(results[2].presentation.blocks.some((block) => block.type === "recommendation" && block.estimate?.hypothetical && block.estimate.savingPaise === 18000))
   assert.match(render(results[2]), /Recommended next steps|Hypothetical/)
   assert.equal(results[3].cards[0].previousPaise, 280000)
   assert.equal(results[3].cards[0].currentPaise, 435000)
@@ -223,13 +222,13 @@ test("biggest expenses render once with relevant actions, even if Gemini repeats
     return { answer: "Here are the selected expenses.\n\n• {{q0_record0}}\n• {{q0_record1}}", blockIds: ["q0_categories", "q0_expenses"] }
   }])
   const result = await a.ask("Show my biggest expenses")
-  const lists = result.presentation.blocks.filter((block) => block.type === "list")
+  const lists = result.presentation.blocks.filter((block) => block.type === "ranked_expenses")
   assert.equal(lists.length, 1)
   assert.equal(lists[0].items.length, 2)
   assert.ok(result.presentation.blocks.every((block) => !["metric", "categories", "savings"].includes(block.type)))
   assert.equal((result.answer.match(/₹3,450/g) || []).length, 1)
   assert.equal((render(result).match(/₹3,450/g) || []).length, 1)
-  assert.ok(result.presentation.blocks.findIndex((block) => block.type === "actions") < result.presentation.blocks.findIndex((block) => block.type === "list"))
+  assert.ok(result.presentation.blocks.findIndex((block) => block.type === "actions") > result.presentation.blocks.findIndex((block) => block.type === "ranked_expenses"))
   assert.equal(a.calls.length, 2)
   assert.equal(result.cloud.correctionAttempted, false)
 })
@@ -267,10 +266,39 @@ test("a reduction follow-up retaining largest intent uses its recorded evidence 
   const a = app([plan({ intent: "largest" }), { answer: "Here are the selected expenses." }, plan({ intent: "largest", task: "reduce" }), { answer: "Review which selected purchases were optional before changing spending." }])
   const first = await a.ask("Show my biggest expenses")
   const result = await a.ask("How can I reduce those expenses?", { context: first.context, messages: [{ role: "user", content: "Show my biggest expenses" }, { role: "assistant", content: first.answer }, { role: "user", content: "How can I reduce those expenses?" }] })
-  assert.equal(first.presentation.blocks.filter((block) => block.type === "list").length, 1)
-  assert.equal(result.presentation.blocks.filter((block) => block.type === "list").length, 0)
+  assert.equal(first.presentation.blocks.filter((block) => block.type === "ranked_expenses").length, 1)
+  assert.equal(result.presentation.blocks.filter((block) => block.type === "ranked_expenses").length, 0)
   assert.equal(result.context.queries[0].intent, "largest")
   assert.equal(result.context.queries[0].task, "reduce")
-  assert.ok(result.presentation.blocks.some((block) => block.type === "recommendation" && block.estimate?.savingPaise === 90000))
+  assert.ok(result.presentation.blocks.some((block) => block.type === "recommendation" && block.estimate?.savingPaise === 18000))
   assert.equal(a.calls.length, 4)
+})
+
+test("a conversational verified amount remains visible alongside the ranked visual card", async () => {
+  const a = app([plan({ intent: "largest" }), { answer: "Your largest recorded expense is {{q0_record0_amount}}." }])
+  const result = await a.ask("Show my biggest expenses")
+  assert.match(result.answer, /Your largest recorded expense is ₹3,450/)
+  assert.equal(result.presentation.blocks.filter((block) => block.type === "ranked_expenses").length, 1)
+  assert.equal((render(result).match(/₹3,450/g) || []).length, 2)
+  assert.equal(a.calls.length, 2)
+})
+
+test("Shopping advice stays gradual until the user explicitly discusses deferring a purchase", async () => {
+  const a = app([
+    plan({ task: "reduce", category: "Shopping" }), { answer: "Try a gradual reduction if it fits your needs." },
+    plan({ task: "reduce", category: "Shopping" }), { answer: "If that purchase is optional, deferring a similar purchase is a hypothetical option." },
+  ])
+  const first = await a.ask("How can I reduce my shopping expenses?")
+  const gradual = first.presentation.blocks.find((block) => block.type === "recommendation" && block.estimate).estimate
+  assert.equal(gradual.reductionBps, 2000)
+  assert.equal(gradual.savingPaise, 18000)
+  assert.equal(gradual.remainingPaise, 72000)
+  const second = await a.ask("What if I defer that optional shopping purchase?", { context: first.context })
+  const deferral = second.presentation.blocks.find((block) => block.type === "recommendation" && block.estimate).estimate
+  assert.equal(deferral.reductionBps, null)
+  assert.equal(deferral.savingPaise, 90000)
+  assert.equal(deferral.remainingPaise, 0)
+  assert.equal(deferral.hypothetical, true)
+  assert.equal(a.calls.length, 4)
+  assert.equal(second.source, "gemini_development")
 })

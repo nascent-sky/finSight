@@ -78,6 +78,7 @@ export function presentationText(presentation) {
   return presentation.blocks.map((block) => {
     if (["heading", "paragraph", "notice"].includes(block.type)) return block.text
     if (block.type === "list") return block.items.map((item, i) => `${block.ordered ? `${i + 1}.` : "•"} ${item}`).join("\n")
+    if (["ranked_expenses", "transaction_list"].includes(block.type)) return `${block.label} · ${block.period} · ${money(block.totalPaise)} total\n${block.items.map((item, i) => `${block.type === "ranked_expenses" ? `${i + 1}.` : "•"} ${item.category} · ${money(item.amountPaise)} · ${item.date} · ${item.method.toUpperCase()}`).join("\n")}\nShowing ${block.items.length} of ${block.totalCount} expenses.`
     if (block.type === "metric") return `${block.label}: ${money(block.amountPaise)} · ${block.period}`
     if (block.type === "categories") return `${block.basis === "income" ? "Recorded income" : "Recorded expenses"}: ${money(block.totalPaise)}\n${block.items.map((item) => `${item.label}: ${money(item.amountPaise)} (${item.share == null ? "N/A" : `${item.share}%`})`).join("\n")}`
     if (block.type === "savings") return `Hypothetical estimate · ${block.label}: ${money(block.savingPaise)}${block.reductionBps == null ? "" : ` at ${block.reductionBps / 100}%`}; remaining spend ${money(block.remainingPaise)} · ${block.period}. Not recorded savings.`

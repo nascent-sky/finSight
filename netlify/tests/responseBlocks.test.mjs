@@ -61,7 +61,7 @@ test("personalized recommendation cards use backend-calculated savings and exact
   const advice = await a.ask("How can I reduce spending?")
   const recommendation = advice.presentation.blocks[1]
   assert.equal(recommendation.title, "Review Shopping purchases")
-  assert.equal(recommendation.estimate.savingPaise, 90000)
+  assert.equal(recommendation.estimate.savingPaise, 18000)
   assert.equal(recommendation.estimate.originalPaise, 90000)
   assert.equal(recommendation.estimate.hypothetical, true)
   const scenario = await a.ask("What if I reduce shopping by 20%?", { context: advice.context, history: [{ role: "user", content: "How can I reduce spending?" }, { role: "assistant", content: advice.answer }] })
@@ -122,9 +122,9 @@ test("Gemini-first GPay guidance has real allowlisted navigation and never retri
 test("validated transaction lists remain visible with structured model replies and disclose omissions", async () => {
   const a = app([plan({ intent: "list" }), output({ type: "paragraph", kind: "recommendation", text: "Here are the matching expense records." })])
   const result = await a.ask("List my expenses this month")
-  const list = result.presentation.blocks.find((block) => block.type === "list")
+  const list = result.presentation.blocks.find((block) => block.type === "transaction_list")
   assert.equal(list.items.length, 2)
-  assert.match(list.items[0], /₹900|₹3,450/)
+  assert.ok([90000, 345000].includes(list.items[0].amountPaise))
   assert.doesNotMatch(JSON.stringify(result.presentation), /PRIVATE-/)
   assert.match(result.answer, /₹4,350 total/)
 })
@@ -132,18 +132,78 @@ test("validated transaction lists remain visible with structured model replies a
 test("multi-part lists preserve the shared record bound and reserve space for verified records", async () => {
   const data = ["10", "09"].flatMap((month) => Array.from({ length: 40 }, (_, i) => row(`row-${month}-${i}`, 1, month, "Other")))
   const a = app([{ status: "resolved", queries: [query({ intent: "list" }), query({ intent: "list", start: "2026-09-01", end: "2026-10-01" })] },
-    output(...Array.from({ length: 11 }, () => ({ type: "paragraph", kind: "recommendation", text: "The relevant records follow." }))),
-    (context) => { assert.equal(context.responseBlockLimit, 10); assert.equal(context.validationFeedback.rule, "response_schema"); return output({ type: "paragraph", kind: "recommendation", text: "Here are the records for each requested period." }) },
+    output(...Array.from({ length: 15 }, () => ({ type: "paragraph", kind: "recommendation", text: "The relevant records follow." }))),
+    (context) => { assert.equal(context.responseBlockLimit, 12); assert.equal(context.validationFeedback.rule, "response_schema"); return output({ type: "paragraph", kind: "recommendation", text: "Here are the records for each requested period." }) },
   ], data)
   const result = await a.ask("List expenses for this month and last month separately")
-  const lists = result.presentation.blocks.filter((block) => block.type === "list")
+  const lists = result.presentation.blocks.filter((block) => block.type === "transaction_list")
   assert.equal(lists.length, 2)
   assert.equal(lists.reduce((total, block) => total + block.items.length, 0), 50)
   assert.ok(result.presentation.blocks.length <= 16)
-  assert.equal(result.presentation.blocks.filter((block) => block.type === "notice" && /Showing 25 of 40/.test(block.text)).length, 2)
+  assert.ok(lists.every((block) => block.totalCount === 40 && block.items.length === 25 && block.totalPaise === 4000))
   assert.deepEqual(a.calls[1].body.generationConfig.responseJsonSchema.required, ["answer"])
   assert.equal(a.calls.length, 3)
   assert.equal(a.reads.length, 1)
+})
+
+test("first-week Gemini narrative and payment follow-up render verified shared cards without sending row identity to the provider", async () => {
+  const data = [["Entertainment", 360, "06"], ["Utilities", 156, "05"], ["Food & Dining", 63, "02"]].map(([category, amount, day], i) => ({ ...row(`PRIVATE-record-${i}`, amount, "10", category), datetime: `2026-10-${day}T10:00:00Z`, paymentMethod: "cash" }))
+  data.push(row("PRIVATE-next-week", 999, "10", "Shopping"))
+  data.at(-1).datetime = "2026-10-08T12:00:00Z"
+  const a = app([
+    plan({ intent: "list", end: "2026-10-08" }),
+    (context) => {
+      assert.equal(context.results[0].recordCount, 3)
+      assert.deepEqual(context.results[0].transactions.map((record) => record.amount), ["₹360", "₹156", "₹63"])
+      assert.doesNotMatch(JSON.stringify(context), /PRIVATE-|rowKey|tx-50-52/)
+      return { answer: "Here are the matching expenses for the requested week." }
+    },
+    (context) => {
+      assert.equal(context.messages.length, 3)
+      assert.equal(context.sessionScope.queries[0].end, "2026-10-08")
+      return plan({ intent: "list", end: "2026-10-08", method: "cash", category: "Utilities" })
+    },
+    { answer: "Here are the matching cash expenses in that category." },
+  ], data)
+  const question = "Show first week expenses of this month"
+  const first = await a.ask(question)
+  const block = first.presentation.blocks.find((block) => block.type === "transaction_list")
+  assert.equal(first.source, "gemini_development")
+  assert.equal(block.period, "1–7 October 2026")
+  assert.equal(block.label, "First Week Expenses")
+  assert.equal(block.totalPaise, 57900)
+  assert.equal(block.totalCount, 3)
+  assert.equal(new Set(block.items.map((item) => item.rowKey)).size, 3)
+  assert.equal(first.presentation.blocks.at(-1).type, "actions")
+  assert.deepEqual(first.presentation.blocks.at(-1).ids, ["transactions"])
+  const next = "Only cash Utilities expenses"
+  const second = await a.ask(next, { context: first.context, history: [{ role: "user", content: question }, { role: "assistant", content: first.answer }] })
+  const filtered = second.presentation.blocks.find((block) => block.type === "transaction_list")
+  assert.equal(filtered.totalPaise, 15600)
+  assert.equal(filtered.items.length, 1)
+  assert.equal(filtered.method, "cash")
+  assert.equal(filtered.category, "Utilities")
+  assert.equal(filtered.items[0].rowKey, block.items[1].rowKey)
+  assert.equal(a.reads.length, 2)
+  assert.ok(a.reads.every((request) => request.uid === uid))
+  assert.equal(a.calls.length, 4)
+  a.calls.filter(({ context }) => context.facts).forEach(({ body }) => {
+    assert.deepEqual(body.generationConfig.responseJsonSchema.required, ["answer"])
+    assert.deepEqual(Object.keys(body.generationConfig.responseJsonSchema.properties), ["answer", "blockIds"])
+  })
+})
+
+test("a contradictory list narrative recovers with the same authoritative rich card and navigation after records", async () => {
+  const a = app([plan({ intent: "list" }), { answer: "There are no recorded expenses." }, { answer: "No transactions were recorded." }])
+  const result = await a.ask("List my expenses")
+  assert.equal(result.source, "local_verified")
+  assert.equal(result.presentation.blocks.filter((block) => block.type === "transaction_list").length, 1)
+  const block = result.presentation.blocks.find((block) => block.type === "transaction_list")
+  assert.equal(block.totalPaise, 435000)
+  assert.equal(result.presentation.blocks.at(-1).type, "actions")
+  assert.doesNotMatch(result.answer, /no recorded|no transactions/i)
+  assert.equal(a.reads.length, 1)
+  assert.equal(a.calls.length, 3)
 })
 
 test("verified category-comparison cards are available to the block selector without inventing a timeline", async () => {

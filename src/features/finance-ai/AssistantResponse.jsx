@@ -1,6 +1,6 @@
-import { ArrowDownLeft, ArrowRight, ArrowUpRight, ChartNoAxesCombined, CircleAlert, Lightbulb, TrendingDown, TrendingUp } from "lucide-react"
+import { ArrowDownLeft, ArrowRight, ArrowUpRight, Bus, ChartNoAxesCombined, CircleAlert, Clapperboard, Gift, GraduationCap, HeartPulse, House, Lightbulb, ListOrdered, Plane, ReceiptText, ShoppingBag, TrendingDown, TrendingUp, Utensils } from "lucide-react"
 import { Link } from "react-router-dom"
-import { formatExpenseAmount } from "../../components/analytics/expenseChartUtils"
+import { formatExpenseAmount, getCategoryColor } from "../../components/analytics/expenseChartUtils"
 import { chronologicalComparison, RESPONSE_ACTIONS, RESPONSE_FOLLOWUPS, textResponseBlocks, validateResponsePresentation } from "./responseBlocks"
 
 const money = (paise) => formatExpenseAmount(paise / 100)
@@ -38,6 +38,28 @@ function Categories({ block }) {
   return <section className="ai-categories" aria-label="Spending category summary"><div className="ai-category-heading"><div><h3>Spending breakdown</h3><p>{block.period}</p></div><div><strong>{money(block.totalPaise)}</strong><span>{block.basis === "income" ? "Recorded income" : "Recorded expenses"}</span></div></div><ul>{block.items.map((item, i) => <li key={i}><div><span>{item.label}</span><strong>{money(item.amountPaise)}</strong></div><div className="ai-category-share"><progress max="100" value={Math.min(100, item.share || 0)} aria-label={`${item.label} share of ${block.basis}`} aria-valuetext={item.share == null ? "N/A" : `${item.share}% of ${block.basis}`} /><span>{item.share == null ? "N/A" : `${item.share}%`}</span></div></li>)}</ul><p className="ai-category-note">Share of recorded {block.basis}{block.otherCount ? ` · ${block.otherCount} additional categories included in the total` : ""}</p></section>
 }
 
+const categoryIcons = { education: GraduationCap, shopping: ShoppingBag, transport: Bus, "food & dining": Utensils, entertainment: Clapperboard, healthcare: HeartPulse, housing: House, utilities: Lightbulb, travel: Plane, gifts: Gift }
+function TransactionList({ block }) {
+  const ranked = block.type === "ranked_expenses"
+  const List = ranked ? "ol" : "ul"
+  const HeaderIcon = ranked ? ListOrdered : ReceiptText
+  const includeYear = block.start.slice(0, 4) !== new Date(Date.parse(`${block.end}T00:00:00Z`) - 1).getUTCFullYear().toString()
+  const dateFormat = new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", ...(includeYear ? { year: "numeric" } : {}), timeZone: "UTC" })
+  return <section className={`ai-ranked-expenses${ranked ? "" : " ai-transactions-chronological"}`} aria-label={ranked ? "Largest expenses" : block.label}>
+    <div className="ai-ranked-header"><div><h3><HeaderIcon size={16} aria-hidden="true" />{block.label}</h3><p>{block.period} · {block.totalCount} {block.totalCount === 1 ? "transaction" : "transactions"}{block.category ? ` · ${block.category}` : ""}{block.method ? ` · ${block.method.toUpperCase()}` : ""}</p></div><dl><dt>{ranked ? "Total recorded expenses" : "Total Spent"}</dt><dd>{money(block.totalPaise)}</dd></dl></div>
+    <List className="ai-ranked-list" role="list" aria-label={ranked ? "Expenses ranked from highest to lowest" : "Expense transactions in recorded order"}>{block.items.map((item, i) => {
+      const Icon = categoryIcons[item.category.toLowerCase()] || ReceiptText
+      return <li className="ai-ranked-row" key={item.rowKey || `legacy-${i}`} style={{ "--rank-color": getCategoryColor(item.category) }}>
+        {ranked && <span className="ai-ranked-number" aria-hidden="true">{i + 1}</span>}
+        <div className="ai-ranked-detail"><div className="ai-ranked-name"><span className="ai-ranked-icon"><Icon size={16} aria-hidden="true" /></span><span>{item.category}{item.category.toLowerCase() === "income" ? " (expense category)" : ""}</span></div><div className="ai-ranked-meta"><time dateTime={item.date}>{dateFormat.format(new Date(`${item.date}T12:00:00Z`))}</time><span className="ai-ranked-payment">{item.method === "cash" ? "CASH" : item.method === "upi" ? "UPI" : "OTHER"}</span></div></div>
+        <strong className="ai-ranked-amount">{money(item.amountPaise)}</strong>
+        <progress className="ai-ranked-share" max="100" value={item.share || 0} aria-label={`Expense ${i + 1} share of total recorded expenses`} aria-valuetext={item.share == null ? "N/A" : `${item.share}% of total recorded expenses`} />
+      </li>
+    })}</List>
+    <p className="ai-ranked-footer">Showing {block.items.length} of {block.totalCount} expenses<span>{ranked ? "Ranked by individual amount" : "Recorded order"}</span>{block.items.length < block.totalCount && <span>The total includes all matches. Narrow the period for more detail.</span>}</p>
+  </section>
+}
+
 export default function AssistantResponse({ answer, cards = [], presentation, onFollowup, disabled = false, inlineFollowups = true }) {
   let blocks
   try { blocks = presentation ? validateResponsePresentation(presentation).blocks : [...textResponseBlocks(answer), ...cards.map((card) => ({ type: "comparison", card: chronologicalComparison(card) }))] } catch { return <p role="alert">This response format could not be verified. Please retry.</p> }
@@ -61,6 +83,7 @@ export default function AssistantResponse({ answer, cards = [], presentation, on
       const List = block.ordered ? "ol" : "ul"
       rendered.push(<List className="ai-response-list" key={i}>{block.items.map((item, n) => <li key={n}><InlineText text={item} /></li>)}</List>)
     } else if (block.type === "comparison") rendered.push(<ComparisonCard card={block.card} key={i} />)
+    else if (["ranked_expenses", "transaction_list"].includes(block.type)) rendered.push(<TransactionList block={block} key={i} />)
     else if (block.type === "categories") rendered.push(<Categories block={block} key={i} />)
     else if (block.type === "savings") rendered.push(<Savings block={block} key={i} />)
     else if (block.type === "notice") rendered.push(<aside className={`ai-response-notice ai-notice-${block.tone || "info"}`} key={i}><CircleAlert size={16} aria-hidden="true" /><p><InlineText text={block.text} /></p></aside>)

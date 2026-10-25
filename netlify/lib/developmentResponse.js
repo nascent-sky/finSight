@@ -3,7 +3,7 @@ import { modelValidationError, responseValueType } from "./modelValidation.js"
 import { presentationText, resolveModelResponseBlocks } from "./modelResponseBlocks.js"
 import { comparisonBlock, responsePresentation, textResponseBlocks } from "../../src/features/finance-ai/responseBlocks.js"
 import { GEMINI_RESPONSE_FORMAT, GEMINI_RESPONSE_SCHEMA } from "./geminiRequestSchema.js"
-import { selectPreparedBlocks, uniqueNarrativeBlocks } from "./responseComposition.js"
+import { appendOwnedBlocks, selectPreparedBlocks, uniqueNarrativeBlocks } from "./responseComposition.js"
 import { assertNarrativeConsistent } from "./narrativeConsistency.js"
 
 // The model supplies narrative and optional references. FinSight owns the UI.
@@ -30,7 +30,7 @@ export function validateDevelopmentResponse(output, { facts, cardMap, catalog = 
     const prose = (Array.isArray(legacyBlocks) ? legacyBlocks : []).flatMap((block) => [block?.text, block?.title, ...(Array.isArray(block?.items) ? block.items.map((item) => typeof item === "string" ? item : item?.text) : [])]).filter((text) => typeof text === "string")
     prose.forEach((text) => assertNarrativeConsistent(text, evidence, facts))
     const result = validateLegacyResponse({ cardIds: [], ...output }, options)
-    if (ownedBlocks.length) result.presentation = responsePresentation([...result.presentation.blocks, ...ownedBlocks])
+    if (ownedBlocks.length) result.presentation = responsePresentation(appendOwnedBlocks(result.presentation.blocks, ownedBlocks))
     return result
   }
   throw modelValidationError("narrative_missing", stage, { validator: "response_envelope", field: "answer", expected: "string", receivedType: "missing" })
@@ -88,7 +88,7 @@ function validateNarrativeResponse(output, { facts, cardMap, catalog, defaultBlo
   for (const resource of Object.values(catalog)) if (shown.has(JSON.stringify(resource.block))) resource.factKeys.forEach((key) => usedFacts.add(key))
   if (requiredFactKeys.some((key) => !usedFacts.has(key))) fail("scenario_result_missing", "verified_financial_claim", "string", "financial_claim")
   let presentation
-  try { presentation = responsePresentation([...blocks, ...ownedBlocks]) } catch { throw modelValidationError("response_schema", stage, { validator: "presentation", field: "presentation", expected: "valid_presentation", receivedType: "object", repairable: false }) }
+  try { presentation = responsePresentation(appendOwnedBlocks(blocks, ownedBlocks)) } catch { throw modelValidationError("response_schema", stage, { validator: "presentation", field: "presentation", expected: "valid_presentation", receivedType: "object", repairable: false }) }
   const answer = presentationText({ blocks: narrative }) || (ownedBlocks.length ? "" : presentationText(presentation))
   return { answer, cards: blocks.filter((block) => block.type === "comparison").map((block) => block.card), presentation, ...(warnings.length ? { presentationWarnings: warnings } : {}) }
 }

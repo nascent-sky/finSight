@@ -1,5 +1,40 @@
 # Rich financial responses
 
+The targeted largest-expense card and gradual Shopping defaults are described in
+[Final response polish](../../../netlify/FINAL_RESPONSE_POLISH.md).
+
+The transaction card now also handles ordinary lists through the same
+`TransactionList` renderer and `transactionListBlock` projection. Both local
+analysis and authenticated backend results use it. The existing `ranked_expenses`
+block remains compatible; `transaction_list` carries chronological selections.
+These are program-owned presentation blocks, not additions to Gemini's minimal
+`answer`/optional `blockIds` schema.
+
+The header groups the readable inclusive date range, full matching count and
+verified expense total. Rows retain canonical category, amount, local date and
+payment method with Analytics colors. Only largest-expense queries show ranks;
+ordinary lists retain the selected record order. Limits remain five largest or
+50 ordinary records (shared across queries on the backend). Truncation is shown
+inside the card; empty results have no empty card. Existing transaction navigation
+follows the records, including consistency-recovery responses. The isolated guest
+demo continues to omit navigation into real account transactions.
+
+React row keys derive from encoded authoritative transaction IDs, are absent
+from DOM content and provider evidence, and never deduplicate equal-looking
+records. Older local feeds missing IDs use canonical feed positions as a
+compatibility fallback. Totals, filters, shares and exact-paise validations remain
+authoritative. No model, SDK request configuration, financial engine, privacy
+policy or authentication changes are required.
+
+Latest validation: **286 tests passed**, ESLint passed, and production/PWA build
+passed. Coverage includes the three first-week expenses totaling ₹579, local
+timezone boundaries, category/payment filters, distinct equal-looking records,
+shared limits, guest isolation, multi-turn SDK transport fixtures, consistency
+recovery, semantic lists, navigation and 320px/theme CSS safeguards. Provider
+transport is mocked; browser pixel layout and assistive-technology behavior were
+not exercised. No app, backend, Netlify Dev, preview or deployment was started.
+Existing chunk-size and outdated Browserslist warnings remain.
+
 For the current intent-aware cloud composition and deduplication policy, see
 [Concise financial responses](../../../netlify/RESPONSE_COMPOSITION.md).
 

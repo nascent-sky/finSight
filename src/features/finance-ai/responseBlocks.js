@@ -35,6 +35,28 @@ export function validateResponsePresentation(value) {
         if (typeof block.ordered !== "boolean" || !Array.isArray(block.items) || !block.items.length || block.items.length > 50) invalid()
         block.items.forEach((item) => text(item, 1000))
         break
+      case "ranked_expenses": case "transaction_list": {
+        object(block, ["type", "label", "period", "start", "end", "category", "method", "totalPaise", "totalCount", "items"])
+        text(block.label, 120); text(block.period, 240); amount(block.totalPaise)
+        const date = (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
+        if (!date(block.start) || !date(block.end) || block.start >= block.end || !Number.isSafeInteger(block.totalCount) || block.totalCount < 1 || !Array.isArray(block.items) || !block.items.length || block.items.length > (block.type === "ranked_expenses" ? 5 : 50) || block.items.length > block.totalCount) invalid()
+        if (block.category != null) text(block.category, 160)
+        if (block.method != null && !["cash", "upi", "other"].includes(block.method)) invalid()
+        let shown = 0, previous = Infinity
+        const keys = new Set()
+        for (const item of block.items) {
+          object(item, ["rowKey", "category", "amountPaise", "date", "method", "share"])
+          if (item.rowKey != null) { text(item.rowKey, 6000); if (keys.has(item.rowKey)) invalid(); keys.add(item.rowKey) }
+          else if (block.type === "transaction_list") invalid()
+          text(item.category, 160); amount(item.amountPaise)
+          if (!item.amountPaise || block.type === "ranked_expenses" && item.amountPaise > previous || !date(item.date) || item.date < block.start || item.date >= block.end || !["cash", "upi", "other"].includes(item.method)) invalid()
+          if (block.category && item.category.toLowerCase() !== block.category.toLowerCase() || block.method && item.method !== block.method) invalid()
+          if (item.share !== (block.totalPaise ? Math.round(item.amountPaise / block.totalPaise * 1000) / 10 : null)) invalid()
+          previous = item.amountPaise; shown += item.amountPaise
+        }
+        if (shown > block.totalPaise || block.items.length === block.totalCount && shown !== block.totalPaise) invalid()
+        break
+      }
       case "metric":
         object(block, ["type", "label", "amountPaise", "semantic", "period"])
         text(block.label, 120); text(block.period, 240)

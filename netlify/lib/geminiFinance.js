@@ -7,7 +7,7 @@ import { setTimeout as delay } from "node:timers/promises"
 import { requireDevelopmentAccess, sanitizeDevelopmentInput } from "./developmentPolicy.js"
 import { modelValidationError } from "./modelValidation.js"
 import { DEVELOPMENT_RESPONSE_INSTRUCTIONS, DEVELOPMENT_RESPONSE_SCHEMA, validateDevelopmentResponse } from "./developmentResponse.js"
-import { prepareCloudLayout } from "./responseComposition.js"
+import { prepareCloudLayout, purchaseDeferralRequested } from "./responseComposition.js"
 import { assertSimpleResponseSchema, GEMINI_PLAN_SCHEMA_VERSION, GEMINI_RESPONSE_SCHEMA_VERSION } from "./geminiRequestSchema.js"
 import { geminiProviderError, providerStatus } from "./geminiErrors.js"
 import { buildNarrativeEvidence, promptEvidence, verifiedStatusFacts } from "./narrativeConsistency.js"
@@ -89,7 +89,7 @@ export async function generateDevelopmentJson({ env, uid, token, context, instru
 }
 
 async function explainFacts({ env, plan, analysis, financialIndex, questions, privateContext = true, signal, clientFactory, synthetic = false }) {
-  const layout = prepareCloudLayout(analysis, plan)
+  const layout = prepareCloudLayout(analysis, plan, "q0", {}, { allowPurchaseDeferral: purchaseDeferralRequested(questions.at(-1)) })
   const catalog = Object.fromEntries(Object.entries(layout.catalog).map(([id, item]) => [id, { ...item, factKeys: item.factKeys.map((key) => key.replace(/^q0_/, "")) }]))
   const evidence = [buildNarrativeEvidence(financialIndex, plan, analysis)]
   const facts = { ...Object.fromEntries(Object.entries(analysis.facts).map(([key, fact]) => [key, { ...fact, kind: /^c\d+_cut(?:10|20)$/.test(key) || key === "savings_gap" ? "hypothetical" : key === "savings_target" ? "requested" : "recorded", period: plan.period.label }])), ...verifiedStatusFacts(evidence) }

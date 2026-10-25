@@ -4,7 +4,7 @@ import { createFinancialIndex, analyseFinancialQuery } from "../../src/features/
 import { validateInterpretedIntent } from "../../src/features/finance-ai/questionPlanner.js"
 import { formatExpenseAmount } from "../../src/components/analytics/expenseChartUtils.js"
 import { validateResponsePresentation } from "../../src/features/finance-ai/responseBlocks.js"
-import { prepareCloudLayout, selectPreparedBlocks, narrativeFacts, uniqueNarrativeBlocks } from "../lib/responseComposition.js"
+import { prepareCloudLayout, selectPreparedBlocks, narrativeFacts, uniqueNarrativeBlocks, purchaseDeferralRequested } from "../lib/responseComposition.js"
 import { validateDevelopmentResponse } from "../lib/developmentResponse.js"
 
 const now = new Date("2026-10-25T12:00:00Z"), options = { now, timezone: "UTC" }
@@ -43,18 +43,18 @@ test("recommendations use recorded optional-purchase evidence, exclude automatic
   const recommendations = answer.presentation.blocks.filter((block) => block.type === "recommendation")
   assert.equal(recommendations.length, 3)
   assert.match(recommendations[0].title, /Shopping/)
-  assert.match(recommendations[0].text, /2 recorded Shopping purchases.*2 Oct/)
+  assert.match(recommendations[0].text, /2 recorded Shopping purchases.*10%.*₹11\.03/)
   assert.match(recommendations[1].title, /Entertainment/)
   assert.equal(recommendations[0].estimate.originalPaise, 11030)
-  assert.equal(recommendations[0].estimate.savingPaise, 9030)
-  assert.equal(recommendations[0].estimate.remainingPaise, 2000)
-  assert.equal(recommendations[0].estimate.reductionBps, null)
+  assert.equal(recommendations[0].estimate.savingPaise, 2206)
+  assert.equal(recommendations[0].estimate.remainingPaise, 8824)
+  assert.equal(recommendations[0].estimate.reductionBps, 2000)
   assert.ok(recommendations.every((block) => !block.estimate || !/healthcare|education|food|transport/i.test(block.title)))
   const summaries = answer.presentation.blocks.filter((block) => block.type === "savings")
   assert.equal(summaries.length, 1)
-  assert.equal(summaries[0].savingPaise, 17157)
+  assert.equal(summaries[0].savingPaise, 3831)
   assert.equal(summaries[0].originalPaise, 19157)
-  assert.equal(summaries[0].remainingPaise, 2000)
+  assert.equal(summaries[0].remainingPaise, 15326)
   assert.match(summaries[0].period, /incomplete/)
   assert.equal(summaries[0].hypothetical, true)
   assert.ok(ids.every((id) => !/_cut(?:10|20)$/.test(id)))
@@ -108,4 +108,35 @@ test("explicit reduction requests retain their authoritative rate and zero-data 
   const zero = prepareCloudLayout(analyseFinancialQuery(index, p), p)
   assert.equal(zero.policy.mode, "scenario")
   assert.equal(zero.blocks.find((block) => block.type === "savings").savingPaise, 0)
+})
+
+test("ordinary Shopping advice uses verified 10–20% alternatives and retains most of a single purchase", () => {
+  const shoppingIndex = createFinancialIndex([row("one-purchase", 1200, "Shopping")], options)
+  const p = plan({ task: "reduce", category: "Shopping" })
+  const analysis = analyseFinancialQuery(shoppingIndex, p)
+  const prepared = prepareCloudLayout(analysis, p)
+  const recommendation = prepared.blocks.find((block) => block.type === "recommendation" && block.estimate)
+  assert.match(recommendation.text, /10% scenario would save ₹120/)
+  assert.match(recommendation.text, /If part of this spending is flexible/)
+  assert.equal(recommendation.estimate.reductionBps, 2000)
+  assert.equal(recommendation.estimate.savingPaise, 24000)
+  assert.equal(recommendation.estimate.remainingPaise, 96000)
+  assert.equal(recommendation.estimate.hypothetical, true)
+  assert.doesNotThrow(() => validateResponsePresentation({ version: 1, blocks: prepared.blocks }))
+})
+
+test("explicit purchase-deferral requests retain the optional full-purchase scenario; ordinary or negated requests do not", () => {
+  for (const question of ["What if I defer that optional shopping purchase?", "Could I postpone this purchase?", "Explain that deferral option"]) assert.equal(purchaseDeferralRequested(question), true)
+  for (const question of ["How can I reduce my shopping expenses?", "How can I reduce shopping without cancelling my purchase?", "I do not want to defer this purchase"]) assert.equal(purchaseDeferralRequested(question), false)
+  const p = plan({ task: "reduce", category: "Shopping" })
+  const analysis = analyseFinancialQuery(index, p)
+  const prepared = prepareCloudLayout(analysis, p, "q0", {}, { allowPurchaseDeferral: true })
+  const estimate = prepared.blocks.find((block) => block.type === "recommendation" && block.estimate).estimate
+  assert.equal(estimate.savingPaise, 9030)
+  assert.equal(estimate.remainingPaise, 2000)
+  assert.equal(estimate.reductionBps, null)
+  assert.match(estimate.label, /One optional Shopping purchase/)
+  const full = layout({ task: "reduce", category: "Shopping", reductionBps: 10000 }).blocks.find((block) => block.type === "savings")
+  assert.equal(full.savingPaise, 11030)
+  assert.equal(full.remainingPaise, 0)
 })

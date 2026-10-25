@@ -1,11 +1,21 @@
 import { buildFinancialBlockCatalog } from "../../src/features/finance-ai/financialPresentation.js"
+import { calculateHypotheticalReduction } from "../../src/features/finance-ai/financialContext.js"
+import { formatExpenseAmount } from "../../src/components/analytics/expenseChartUtils.js"
 const reviewCategories = new Set(["shopping", "entertainment"])
 const scenarioKey = (block) => JSON.stringify([block.label, block.period, block.originalPaise, block.savingPaise, block.remainingPaise, block.reductionBps])
 const scopeKey = (plan) => JSON.stringify([plan.period.start, plan.period.end, plan.category, plan.method, plan.comparison?.start, plan.comparison?.end])
 
+// Presentation opt-in only: this never changes routing, query scope or tools.
+export function purchaseDeferralRequested(question = "") {
+  const text = question.toLowerCase()
+  const cue = /\b(?:defer(?:red|ring)?|deferral|postpon(?:e|ing)|delay(?:ing)?|skip(?:ping)?|cancel(?:ling|ing)?)\b/.exec(text)
+  if (!cue || /\b(?:not|never|without|don't|do not|avoid)\b(?:\s+\w+){0,3}\s*$/.test(text.slice(Math.max(0, cue.index - 40), cue.index))) return false
+  return /\b(?:purchase|transaction|item|shopping)\b/.test(text) || /\b(?:that|the)\s+deferral\s+(?:option|scenario)\b/.test(text)
+}
+
 // Cloud-only presentation policy. The local/guest engine's layouts and maths
 // are unchanged; these resources project its verified records and totals.
-export function prepareCloudLayout(analysis, plan, prefix = "q0", extraCatalog = {}) {
+export function prepareCloudLayout(analysis, plan, prefix = "q0", extraCatalog = {}, { allowPurchaseDeferral = false } = {}) {
   const base = buildFinancialBlockCatalog(analysis, plan, prefix)
   const source = { ...base.catalog, ...extraCatalog }, catalog = {}, defaultIds = []
   const scope = scopeKey(plan)
@@ -31,10 +41,17 @@ export function prepareCloudLayout(analysis, plan, prefix = "q0", extraCatalog =
       if (!evidence) return
       const period = base.catalog[`${prefix}_expenses`].block.period
       const originalPaise = categoryRecords.reduce((sum, record) => sum + record.paise, 0)
-      const estimate = { type: "savings", label: `One optional ${category.name} purchase`, period, originalPaise, savingPaise: evidence.paise, remainingPaise: originalPaise - evidence.paise, reductionBps: null, hypothetical: true }
+      const gradual = calculateHypotheticalReduction(originalPaise, 2000)
+      const smaller = calculateHypotheticalReduction(originalPaise, 1000)
+      const estimate = allowPurchaseDeferral
+        ? { type: "savings", label: `One optional ${category.name} purchase`, period, originalPaise, savingPaise: evidence.paise, remainingPaise: originalPaise - evidence.paise, reductionBps: null, hypothetical: true }
+        : { type: "savings", label: `Gradual ${category.name} reduction`, period, ...gradual, hypothetical: true }
       const count = categoryRecords.length
       const date = new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${evidence.date}T12:00:00Z`))
-      const recommendation = { type: "recommendation", title: `Review ${category.name} purchases`, text: `${count} ${plan.intent === "largest" ? "selected" : "recorded"} ${category.name} purchase${count === 1 ? "" : "s"} in this period. If the purchase on ${date} was optional, consider deferring a similar purchase; this does not assume every purchase is flexible.`, ...(plan.targetPaise ? {} : { estimate }) }
+      const detail = allowPurchaseDeferral ? `If the purchase on ${date} was optional, consider deferring a similar purchase; this does not assume every purchase is flexible.`
+        : plan.targetPaise ? "Review which part is flexible before choosing a limit; keep essential purchases protected."
+          : `If part of this spending is flexible, a 10% scenario would save ${formatExpenseAmount(smaller.savingPaise / 100)}. Compare it with the 20% option below; neither assumes eliminating the category.`
+      const recommendation = { type: "recommendation", title: `Review ${category.name} purchases`, text: `${count} ${plan.intent === "largest" ? "selected" : "recorded"} ${category.name} purchase${count === 1 ? "" : "s"} in this period. ${detail}`, ...(plan.targetPaise ? {} : { estimate }) }
       put(`${prefix}_review${i}`, recommendation)
       if (!plan.targetPaise) { put(`${prefix}_review${i}_estimate`, estimate, [], "embedded_estimate", false); estimates.push(estimate) }
     })
@@ -43,7 +60,7 @@ export function prepareCloudLayout(analysis, plan, prefix = "q0", extraCatalog =
     if (plan.targetPaise && target) put(`${prefix}_target_plan`, { ...target.block, label: "Illustrative target scenario; flexibility unconfirmed" }, target.factKeys, "summary")
     else if (estimates.length > 1) {
       const originalPaise = estimates.reduce((sum, item) => sum + item.originalPaise, 0), savingPaise = estimates.reduce((sum, item) => sum + item.savingPaise, 0)
-      put(`${prefix}_savings_summary`, { type: "savings", label: "Combined optional-purchase scenario", period: estimates[0].period, originalPaise, savingPaise, remainingPaise: originalPaise - savingPaise, reductionBps: null, hypothetical: true }, [], "summary")
+      put(`${prefix}_savings_summary`, { type: "savings", label: allowPurchaseDeferral ? "Combined optional-purchase scenario" : "Combined gradual-reduction scenario", period: estimates[0].period, originalPaise, savingPaise, remainingPaise: originalPaise - savingPaise, reductionBps: null, hypothetical: true }, [], "summary")
     }
   } else {
     base.blocks.forEach((block, i) => {
@@ -71,7 +88,7 @@ export function selectPreparedBlocks({ catalog, defaultBlocks, suggested, polici
   let recommendations = 0, comparisons = 0
   for (const resource of candidates) {
     const { block, scope = "", role } = resource
-    if (recordsAppended && (role === "record_context" || !policies.length && ["list", "paragraph"].includes(block.type))) continue
+    if (recordsAppended && (role === "record_context" || !policies.length && ["list", "paragraph", "transaction_list", "ranked_expenses"].includes(block.type))) continue
     if (role === "embedded_estimate" || block.type === "savings" && embedded.has(JSON.stringify([scope, scenarioKey(block)]))) continue
     if (block.type === "recommendation" && recommendations >= 3 || block.type === "comparison" && comparisons >= 2) continue
     const key = identity(resource)
@@ -101,4 +118,10 @@ export function uniqueNarrativeBlocks(narrative, prepared, recordValues = []) {
     if (block.type === "list") { const items = block.items.filter((item) => !owned.has(normalize(item))); return items.length ? [{ ...block, items }] : [] }
     return ["paragraph", "heading"].includes(block.type) && owned.has(normalize(block.text)) ? [] : [block]
   })
+}
+
+// Navigation follows verified records in both successful and recovered replies.
+export function appendOwnedBlocks(blocks, ownedBlocks) {
+  if (!ownedBlocks.some((block) => ["ranked_expenses", "transaction_list"].includes(block.type))) return [...blocks, ...ownedBlocks]
+  return [...blocks.filter((block) => block.type !== "actions"), ...ownedBlocks, ...blocks.filter((block) => block.type === "actions")]
 }

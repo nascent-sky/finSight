@@ -9,11 +9,11 @@ import { aiError } from "./aiErrors.js"
 import { generateValidated, modelValidationError } from "./modelValidation.js"
 import { DEVELOPMENT_RESPONSE_INSTRUCTIONS, DEVELOPMENT_RESPONSE_SCHEMA, validateDevelopmentResponse } from "./developmentResponse.js"
 import { calculateHypotheticalReduction, requestedReductions } from "./developmentScenarios.js"
-import { financialRecordSummary } from "../../src/features/finance-ai/financialPresentation.js"
+import { transactionListBlock } from "../../src/features/finance-ai/financialPresentation.js"
 import { APP_GUIDES, appGuideResponse } from "../../src/features/finance-ai/appGuidance.js"
 import { comparisonBlock, responsePresentation } from "../../src/features/finance-ai/responseBlocks.js"
 import { GEMINI_PLAN_FORMAT, normalizeGeminiPlan } from "./geminiRequestSchema.js"
-import { narrativeFacts, prepareCloudLayout } from "./responseComposition.js"
+import { narrativeFacts, prepareCloudLayout, purchaseDeferralRequested } from "./responseComposition.js"
 import { buildNarrativeEvidence, promptEvidence, verifiedStatusFacts } from "./narrativeConsistency.js"
 import { generateConsistentResponse, verifiedNarrativeRecovery } from "./narrativeRecovery.js"
 
@@ -74,7 +74,7 @@ function requestedTargets(conversation, scope) {
   return targets
 }
 
-function buildResults(index, plans) {
+function buildResults(index, plans, question) {
   const facts = {}, cardMap = {}, results = [], lists = [], requiredFactKeys = [], catalog = {}, defaultBlocks = [], recordBlocks = [], policies = [], evidence = [], actionSet = new Set()
   const analyses = plans.map((plan) => analyseFinancialQuery(index, plan))
   const put = (key, label, value) => { facts[key] = { label, value: String(value) } }
@@ -104,7 +104,7 @@ function buildResults(index, plans) {
     put(`${id}_shown_records`, "Number of relevant records supplied to the model", selected.length)
     put(`${id}_omitted_records`, "Matching records outside this bounded detail selection; totals include them", Math.max(0, (plan.intent === "income" ? ordered.length : analysis.stats.expenses.length) - selected.length))
     addScenarioFacts(facts, id, plan, analysis.stats, catalog)
-    const layout = prepareCloudLayout(analysis, plan, id, catalog)
+    const layout = prepareCloudLayout(analysis, plan, id, catalog, { allowPurchaseDeferral: purchaseDeferralRequested(question) })
     Object.assign(catalog, layout.catalog)
     defaultBlocks.push(...layout.blocks)
     policies.push(layout.policy)
@@ -113,9 +113,8 @@ function buildResults(index, plans) {
     results.push({ id, scope: developmentQuery(plan), note: analysis.note, empty: !receipt.current.hasRecords, recordCount: receipt.current.recordCount, expenseTotalPaise: receipt.current.expenseTotalPaise, shownCount: selected.length, omittedCount: Math.max(0, receipt.current.recordCount - selected.length), transactions })
     if (["list", "largest"].includes(plan.intent) && plan.task !== "reduce") {
       const count = analysis.stats.expenses.length
-      recordBlocks.push({ type: "paragraph", text: `${plan.period.label} · ${count} matching expenses · ${money(analysis.stats.expensePaise)} total` })
-      if (selected.length) recordBlocks.push({ type: "list", ordered: plan.intent === "largest", items: selected.map((record) => financialRecordSummary(record, plan)) })
-      if (selected.length < count) recordBlocks.push({ type: "notice", tone: "info", text: `Showing ${selected.length} of ${count} records. The total includes all matches; narrow the period for more detail.` })
+      if (selected.length) recordBlocks.push(transactionListBlock(analysis.stats, plan, selected))
+      else recordBlocks.push({ type: "paragraph", text: `${plan.period.label} · ${count} matching expenses · ${money(analysis.stats.expensePaise)} total` })
       lists.push(`${plan.intent === "largest" ? "Largest" : "Matching"} fictional test expenses for ${plan.period.label}${plan.category ? ` in ${plan.category}` : ""}${plan.method ? ` via ${plan.method.toUpperCase()}` : ""}:\n${selected.map((_, rank) => `• ${facts[`${id}_record${rank}`].value}`).join("\n") || "No matching recorded expenses."}\n${money(analysis.stats.expensePaise)} total across ${count} matching expenses.${count > selected.length ? ` Showing ${selected.length} of ${count}; narrow the period for the remaining records.` : ""}`)
     }
   })
@@ -162,7 +161,7 @@ export async function runDevelopmentConversation({ env, uid, token, messages, co
   let built
   try {
     const records = await retrieve({ uid, token, projectId: env.FIREBASE_PROJECT_ID, range: toolRequest.retrieval, signal, fetcher })
-    built = buildResults(createFinancialIndex(records, { now, timezone }), toolRequest.plans)
+    built = buildResults(createFinancialIndex(records, { now, timezone }), toolRequest.plans, conversation.at(-1).content)
   } catch (error) {
     if (signal?.aborted || error.name === "AbortError") throw error
     if (error.origin === "tool") throw error

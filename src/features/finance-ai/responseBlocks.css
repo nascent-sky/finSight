@@ -37,6 +37,36 @@
 .ai-category-share progress::-moz-progress-bar { background: var(--ai-info); border-radius: 20px; }
 .ai-category-share span { width: 48px; text-align: right; font-size: 10px; color: var(--muted-text-color); font-variant-numeric: tabular-nums; }
 .ai-categories .ai-category-note { font-size: 10px; color: var(--muted-text-color); margin-top: 14px; }
+.ai-ranked-expenses { min-width: 0; max-width: 100%; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 15px; padding: 16px; background: color-mix(in srgb, var(--ai-info) 3%, var(--surface-color)); }
+.ai-ranked-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: start; gap: 10px 16px; margin-bottom: 7px; }
+.ai-ranked-header > div, .ai-ranked-header dl { min-width: 0; max-width: 100%; }
+.ai-ranked-header h3 { display: flex; align-items: center; gap: 7px; font-size: 14px; line-height: 1.5; }
+.ai-ranked-header h3 svg { color: var(--ai-info); flex-shrink: 0; }
+.ai-ranked-header p, .ai-ranked-header dt { color: var(--muted-text-color); font-size: 10px; line-height: 1.6; }
+.ai-ranked-header p { margin-top: 3px; }
+.ai-ranked-header dl { text-align: right; margin-left: auto; }
+.ai-ranked-header dd { color: var(--text-color); font-size: 22px; font-weight: 700; letter-spacing: -.5px; font-variant-numeric: tabular-nums; line-height: 1.5; }
+.ai-ranked-list { padding: 0; margin: 0; list-style: none; }
+.ai-ranked-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 5px 10px; padding: 11px 0; min-width: 0; }
+.ai-ranked-row + .ai-ranked-row { border-top: 1px solid var(--border-color); }
+.ai-ranked-number { font-size: 11px; font-weight: 650; color: var(--muted-text-color); text-align: center; font-variant-numeric: tabular-nums; }
+.ai-ranked-detail { min-width: 0; }
+.ai-ranked-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; font-weight: 650; line-height: 1.5; }
+.ai-ranked-name > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.ai-ranked-icon { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 9px; background: color-mix(in srgb, var(--rank-color) 14%, var(--surface-color)); color: color-mix(in srgb, var(--rank-color) 55%, #253040); }
+:root[data-color-mode="dark"] .ai-ranked-icon { color: color-mix(in srgb, var(--rank-color) 70%, #ffffff); }
+.ai-ranked-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 2px 0 0 36px; font-size: 10px; line-height: 1.6; color: var(--muted-text-color); }
+.ai-ranked-payment { font-size: 9px; font-weight: 600; letter-spacing: .3px; padding: 0 5px; border: 1px solid var(--border-color); border-radius: 5px; }
+.ai-ranked-amount { justify-self: end; min-width: 0; max-width: 100%; text-align: right; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ai-ranked-share { grid-column: 2 / -1; margin-left: 36px; width: calc(100% - 36px); min-width: 0; height: 3px; appearance: none; border: 0; border-radius: 5px; overflow: hidden; background: var(--surface-muted); color: var(--rank-color); }
+.ai-ranked-share::-webkit-progress-bar { background: var(--surface-muted); }
+.ai-ranked-share::-webkit-progress-value { background: var(--rank-color); border-radius: 5px; }
+.ai-ranked-share::-moz-progress-bar { background: var(--rank-color); border-radius: 5px; }
+.ai-ranked-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 3px 10px; padding-top: 8px; border-top: 1px solid var(--border-color); color: var(--muted-text-color); font-size: 10px; line-height: 1.6; }
+.ai-transactions-chronological .ai-ranked-row { grid-template-columns: minmax(0, 1fr) auto; }
+.ai-transactions-chronological .ai-ranked-share { grid-column: 1 / -1; }
+@media (max-width: 399px) { .ai-ranked-expenses { padding: 12px; } .ai-ranked-row { grid-template-columns: 20px minmax(0, 1fr); column-gap: 8px; } .ai-ranked-amount { grid-column: 2; font-size: 15px; } .ai-ranked-share { grid-column: 2; margin-left: 0; width: 100%; } .ai-ranked-header dd { font-size: 20px; } }
+@media (max-width: 399px) { .ai-transactions-chronological .ai-ranked-row { grid-template-columns: minmax(0, 1fr); } .ai-transactions-chronological .ai-ranked-amount, .ai-transactions-chronological .ai-ranked-share { grid-column: 1; } }
 .ai-recommendations { display: grid; gap: 11px; padding: 0; margin: 0; list-style: none; }
 .ai-recommendations > li { border: 1px solid color-mix(in srgb, var(--ai-caution) 22%, var(--border-color)); border-radius: 14px; padding: 15px; background: color-mix(in srgb, var(--ai-caution) 4%, var(--surface-color)); min-width: 0; }
 .ai-recommendation-heading { display: flex; align-items: center; gap: 9px; color: var(--ai-caution); }

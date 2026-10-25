@@ -1,6 +1,6 @@
 import { generateValidated } from "./modelValidation.js"
 import { isNarrativeContradiction, verifiedEvidenceStatement } from "./narrativeConsistency.js"
-import { selectPreparedBlocks } from "./responseComposition.js"
+import { appendOwnedBlocks, selectPreparedBlocks } from "./responseComposition.js"
 import { responsePresentation } from "../../src/features/finance-ai/responseBlocks.js"
 
 // Recover only after an observed factual contradiction. Ordinary provider,
@@ -31,7 +31,7 @@ export function verifiedNarrativeRecovery({ evidence, catalog, defaultBlocks, po
   const answer = evidence.map(verifiedEvidenceStatement).join("\n")
   const prepared = selectPreparedBlocks({ catalog, defaultBlocks, suggested: [], policies, recordsAppended }).map((resource) => resource.block)
   const actions = allowedActions.length ? [{ type: "actions", ids: allowedActions }] : []
-  const blocks = [{ type: "paragraph", text: answer }, ...prepared.slice(0, Math.max(0, maxBlocks - 1 - actions.length)), ...actions, ...ownedBlocks]
+  const blocks = appendOwnedBlocks([{ type: "paragraph", text: answer }, ...prepared.slice(0, Math.max(0, maxBlocks - 1 - actions.length)), ...actions], ownedBlocks)
   const presentation = responsePresentation(blocks)
   return { answer, presentation, cards: presentation.blocks.filter((block) => block.type === "comparison").map((block) => block.card), source: "local_verified", recovery, cloud: { status: "unavailable", stage: "explanation", reason: "narrative_consistency", correctionAttempted: recovery.repairAttempted } }
 }

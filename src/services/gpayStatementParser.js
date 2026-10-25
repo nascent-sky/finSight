@@ -1,4 +1,4 @@
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
+import { readPdfStatementPages } from "./pdfStatementReader.js"
 
 const INDIA_TIME_OFFSET = "+05:30"
 const TRANSACTION_PATTERN = /\b(Paid to|Received from|Top-up to UPI Lite)\b/i
@@ -108,39 +108,6 @@ export const parseGooglePayDatetime = (text) => {
     second: numericDate[6],
     meridiem: numericDate[7],
   })
-}
-
-const extractPageLines = async (page) => {
-  const textContent = await page.getTextContent()
-  const positionedItems = textContent.items
-    .filter((item) => item.str?.trim())
-    .map((item) => ({
-      text: item.str.trim(),
-      x: item.transform[4],
-      y: item.transform[5],
-    }))
-    .sort((first, second) => second.y - first.y || first.x - second.x)
-
-  const lines = []
-  positionedItems.forEach((item) => {
-    const currentLine = lines.at(-1)
-
-    if (!currentLine || Math.abs(currentLine.y - item.y) > 2) {
-      lines.push({ y: item.y, items: [item] })
-      return
-    }
-
-    currentLine.items.push(item)
-  })
-
-  return lines.map((line) =>
-    line.items
-      .sort((first, second) => first.x - second.x)
-      .map((item) => item.text)
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim(),
-  )
 }
 
 const getBlockDatetime = (blockLines) => {
@@ -268,44 +235,5 @@ export const parseGooglePayStatement = async (file) => {
     throw new Error("Select a valid PDF file.")
   }
 
-  let loadingTask
-
-  try {
-    const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist")
-    GlobalWorkerOptions.workerSrc = pdfWorkerUrl
-    loadingTask = getDocument({ data: await file.arrayBuffer() })
-    const pdf = await loadingTask.promise
-    const lines = []
-
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-      const page = await pdf.getPage(pageNumber)
-      lines.push(...(await extractPageLines(page)))
-    }
-
-    return parseGooglePayStatementLines(lines)
-  } catch (error) {
-    if (error?.message?.includes("Google Pay") || error?.message?.includes("transaction")) {
-      throw error
-    }
-
-    const errorName = String(error?.name || "")
-    const errorMessage = String(error?.message || "")
-
-    if (errorName === "PasswordException" || /password/i.test(errorMessage)) {
-      throw new Error("This PDF is password-protected and cannot be imported.")
-    }
-
-    if (
-      /worker|failed to fetch|dynamically imported module|networkerror|loading chunk/i
-        .test(`${errorName} ${errorMessage}`)
-    ) {
-      throw new Error(
-        "The local PDF parser is unavailable. Reopen FinSight while online once, then try again.",
-      )
-    }
-
-    throw new Error("This PDF could not be read.")
-  } finally {
-    await loadingTask?.destroy()
-  }
+  return parseGooglePayStatementLines((await readPdfStatementPages(file)).flat())
 }

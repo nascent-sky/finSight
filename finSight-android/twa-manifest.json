@@ -43,7 +43,11 @@
         {
           "name": "statement",
           "accept": [
-            "application/pdf"
+            "application/pdf",
+            "text/csv",
+            "application/csv",
+            ".pdf",
+            ".csv"
           ]
         }
       ]

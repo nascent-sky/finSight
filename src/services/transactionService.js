@@ -4,6 +4,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocsFromCache,
   onSnapshot,
   orderBy,
   query,
@@ -20,6 +21,8 @@ import {
   subscribeToPendingTransactions,
   updatePendingTransaction,
 } from "./pendingTransactionService"
+import { findImportMatch, getImportDocumentId, getImportDocumentIds, getImportIdentityKeys, normalizeReference, parseAmountPaise, toImportPayload } from "./statementImportModel.js"
+import { diagnoseImportError, importSaveError, importSaveOperation } from "./transactionImportErrors.js"
 
 export const GUEST_TRANSACTIONS_STORAGE_KEY = "finsight_guest_transactions_v1"
 export const TRANSACTIONS_CHANGED_EVENT = "transactionsChanged"
@@ -35,6 +38,11 @@ const requireUser = () => {
 }
 
 const transactionsCollection = (uid) => collection(db, "users", uid, "transactions")
+
+const assertImportAccount = (expectedUid) => {
+  const currentUid = auth.currentUser?.uid ?? null
+  if (currentUid !== expectedUid) throw importSaveError(expectedUid && !currentUid ? "auth-unavailable" : "account-changed", "authentication")
+}
 
 const validateTransactionId = (id) => {
   const transactionId = String(id ?? "").trim()
@@ -60,8 +68,8 @@ const readGuestTransactionRecords = () => {
   try {
     const parsed = JSON.parse(localStorage.getItem(GUEST_TRANSACTIONS_STORAGE_KEY) || "[]")
     return Array.isArray(parsed) ? parsed : []
-  } catch (error) {
-    console.error("Failed to read guest transactions", error)
+  } catch {
+    console.error("Failed to read guest transactions")
     return []
   }
 }
@@ -75,7 +83,7 @@ const sortTransactions = (transactions) =>
 
 const writeGuestTransactionRecords = (transactions) => {
   if (typeof localStorage === "undefined") {
-    throw new Error("Guest transaction storage is unavailable.")
+    throw importSaveError("storage-unavailable", "guest-storage")
   }
 
   try {
@@ -85,8 +93,7 @@ const writeGuestTransactionRecords = (transactions) => {
       localStorage.setItem(GUEST_TRANSACTIONS_STORAGE_KEY, JSON.stringify(transactions))
     }
   } catch (error) {
-    console.error("Failed to write guest transactions", error)
-    throw new Error("Could not save the transaction on this device.")
+    throw importSaveError(error, "guest-storage")
   }
 }
 
@@ -119,6 +126,8 @@ export const normalizeTransaction = (transaction = {}) => {
     throw new Error("Transaction datetime must be a valid ISO-8601 date.")
   }
 
+  // This is the v3.2.0 cloud contract. Production rules permit exactly these
+  // seven fields; import metadata must never be included in a Firestore write.
   return {
     amount,
     datetime: date.toISOString(),
@@ -130,15 +139,42 @@ export const normalizeTransaction = (transaction = {}) => {
   }
 }
 
+// Preview, guest records and the existing offline queue keep source metadata.
+// Persisting the financial record to Firestore always projects through the
+// seven-field normalizer above; the shared UPI reference lives in its document ID.
+const normalizeLocalTransaction = (transaction = {}) => {
+  const normalized = normalizeTransaction(transaction)
+  const metadata = {}
+  if (transaction.source && ["gpay", "phonepe", "paytm"].includes(transaction.source.provider) && ["pdf", "csv", "xlsx"].includes(transaction.source.format)) {
+    metadata.source = { provider: transaction.source.provider, format: transaction.source.format }
+  }
+  for (const field of ["upiTransactionId", "transactionId", "utr"]) {
+    if (transaction[field]) {
+      const value = normalizeReference(transaction[field])
+      if (!/^[A-Z0-9-]{4,80}$/.test(value)) throw new Error("Invalid import reference.")
+      metadata[field] = value
+    }
+  }
+  if (transaction.paymentInstrument) metadata.paymentInstrument = String(transaction.paymentInstrument).slice(0, 1000)
+  if (transaction.amountPaise != null || metadata.source) metadata.amountPaise = parseAmountPaise(String(normalized.amount))
+  const identityKeys = getImportIdentityKeys(metadata)
+  if (identityKeys.length) metadata.importIdentityKeys = identityKeys
+
+  return {
+    ...normalized,
+    ...metadata,
+  }
+}
+
 export const getGuestTransactions = () =>
   sortTransactions(
     readGuestTransactionRecords().flatMap((transaction) => {
       try {
         const id = String(transaction.id || "").trim()
         if (!id) return []
-        return [{ id, ...normalizeTransaction(transaction) }]
-      } catch (error) {
-        console.error("Ignored an invalid guest transaction", error)
+        return [{ id, ...normalizeLocalTransaction(transaction) }]
+      } catch {
+        console.error("Ignored an invalid guest transaction")
         return []
       }
     }),
@@ -176,9 +212,11 @@ export const addTransaction = async (transaction) => {
 
 export const addGuestTransactionWithId = async (id, transaction) => {
   const transactionId = validateTransactionId(id)
-  const normalized = normalizeTransaction(transaction)
+  const normalized = normalizeLocalTransaction(transaction)
   const guestTransactions = getGuestTransactions()
-  const existing = guestTransactions.find((item) => item.id === transactionId)
+  const match = findImportMatch({ id: transactionId, ...normalized }, guestTransactions)
+  if (match?.conflict) throw new Error("An existing transaction has the same reference but conflicting financial details. Review it before importing.")
+  const existing = guestTransactions.find((item) => item.id === transactionId) || match?.record
 
   if (existing) return { ...existing, created: false }
 
@@ -190,22 +228,33 @@ export const addGuestTransactionWithId = async (id, transaction) => {
 }
 
 const createTransactionIfMissing = async (uid, id, normalized) => {
+  assertImportAccount(uid)
   const reference = doc(db, "users", uid, "transactions", id)
+  // Older queued/guest GPay records contain only seven fields, with their UPI
+  // identity retained solely in the document ID. Include that identity as well.
+  const identityRecord = { id, ...normalized }
+  const aliases = [...new Set([id, ...getImportDocumentIds(identityRecord)])]
+  // Like v3.2.0, check deterministic owner-scoped document IDs in the same
+  // transaction that creates the record. No metadata or collection-group query.
+  return importSaveOperation("firestore-write", () => runTransaction(db, async (firestoreTransaction) => {
+    const snapshots = await importSaveOperation("firestore-read", () => Promise.all(aliases.map((alias) => firestoreTransaction.get(doc(db, "users", uid, "transactions", alias)))))
+    const existing = snapshots.find((snapshot) => snapshot.exists())
+    if (existing) {
+      const match = findImportMatch(identityRecord, [{ id: existing.id, ...existing.data() }])
+      if (match?.conflict) throw importSaveError("reference-conflict", "duplicate-check")
+      return false
+    }
+    assertImportAccount(uid)
 
-  return runTransaction(db, async (firestoreTransaction) => {
-    const snapshot = await firestoreTransaction.get(reference)
-
-    if (snapshot.exists()) return false
-
-    firestoreTransaction.set(reference, normalized)
+    firestoreTransaction.set(reference, normalizeTransaction(normalized))
     return true
-  })
+  }))
 }
 
 export const addTransactionWithId = async (id, transaction) => {
   const user = requireUser()
   const transactionId = validateTransactionId(id)
-  const normalized = normalizeTransaction(transaction)
+  const normalized = normalizeLocalTransaction(transaction)
   const created = await createTransactionIfMissing(user.uid, transactionId, normalized)
 
   return { id: transactionId, ...normalized, created }
@@ -223,7 +272,8 @@ const isOfflineFirestoreError = (error) => {
 }
 
 const queueAuthenticatedTransaction = async (uid, id, normalized) => {
-  const result = await addPendingTransaction(uid, id, normalized)
+  assertImportAccount(uid)
+  const result = await importSaveOperation("offline-queue", () => addPendingTransaction(uid, id, normalized))
 
   return {
     id,
@@ -234,15 +284,32 @@ const queueAuthenticatedTransaction = async (uid, id, normalized) => {
   }
 }
 
-export const saveImportedTransactionWithId = async (id, transaction) => {
-  const transactionId = validateTransactionId(id)
-  const normalized = normalizeTransaction(transaction)
+export const saveImportedTransactionWithId = async (id, transaction, { expectedUid } = {}) => {
+  let normalized, transactionId
+  try {
+    validateTransactionId(id)
+    normalized = normalizeLocalTransaction(toImportPayload(transaction))
+    transactionId = getImportDocumentId(normalized)
+  } catch (error) { throw importSaveError(error, "validation") }
+  // The preview's account is authoritative for this batch. A lost sign-in must
+  // not silently redirect an authenticated import into guest storage.
+  if (expectedUid !== undefined) assertImportAccount(expectedUid)
   const user = auth.currentUser
 
   if (!user?.uid) {
-    const saved = await addGuestTransactionWithId(transactionId, normalized)
+    const saved = await importSaveOperation("guest-storage", () => addGuestTransactionWithId(transactionId, normalized))
     return { ...saved, storage: "guest" }
   }
+
+  const pending = await getPendingTransactions(user.uid).catch(() => [])
+  const cached = await getDocsFromCache(transactionsCollection(user.uid)).catch(() => null)
+  assertImportAccount(user.uid)
+  const match = findImportMatch(normalized, [
+    ...pending.map((record) => ({ id: record.id, ...record.transaction })),
+    ...(cached?.docs || []).map((record) => ({ id: record.id, ...record.data() })),
+  ])
+  if (match?.conflict) throw importSaveError("reference-conflict", "duplicate-check")
+  if (match) return { ...match.record, created: false, pending: Boolean(pending.some((record) => record.id === match.record.id)) }
 
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     return queueAuthenticatedTransaction(user.uid, transactionId, normalized)
@@ -268,27 +335,33 @@ export const syncPendingTransactions = async (user = auth.currentUser) => {
   if (pendingSync?.uid === currentUser.uid) return pendingSync.promise
 
   const promise = (async () => {
-    const records = await getPendingTransactions(currentUser.uid)
+    const records = await importSaveOperation("local-lookup", () => getPendingTransactions(currentUser.uid))
     const counts = { synced: 0, duplicates: 0, failed: 0 }
+    const failures = []
 
     for (const record of records) {
       if (auth.currentUser?.uid !== currentUser.uid) break
 
       try {
+        let transactionId, normalized
+        try {
+          transactionId = validateTransactionId(record.id)
+          normalized = normalizeLocalTransaction(record.transaction)
+        } catch (error) { throw importSaveError(error, "validation") }
         const created = await createTransactionIfMissing(
           currentUser.uid,
-          validateTransactionId(record.id),
-          normalizeTransaction(record.transaction),
+          transactionId,
+          normalized,
         )
-        await deletePendingTransaction(currentUser.uid, record.id)
+        await importSaveOperation("queue-cleanup", () => deletePendingTransaction(currentUser.uid, record.id))
         counts[created ? "synced" : "duplicates"] += 1
       } catch (error) {
-        console.error("Failed to sync a pending transaction", error)
+        failures.push(diagnoseImportError(error, "synchronization"))
         counts.failed += 1
       }
     }
 
-    return counts
+    return failures.length ? { ...counts, failures } : counts
   })()
 
   pendingSync = { uid: currentUser.uid, promise }
@@ -313,7 +386,7 @@ export const mergeGuestTransactionsIntoAccount = async (user = auth.currentUser)
 
   for (const transaction of guestTransactions) {
     try {
-      const normalized = normalizeTransaction(transaction)
+      const normalized = normalizeLocalTransaction(transaction)
       await createTransactionIfMissing(currentUser.uid, transaction.id, normalized)
 
       const remainingTransactions = getGuestTransactions().filter(
@@ -323,7 +396,7 @@ export const mergeGuestTransactionsIntoAccount = async (user = auth.currentUser)
       emitGuestTransactionsChanged("merge", { id: transaction.id })
       merged += 1
     } catch (error) {
-      console.error("Failed to merge a guest transaction", error)
+      console.error("Failed to merge a guest transaction")
       lastError = error
       failed += 1
     }
@@ -413,7 +486,7 @@ export const subscribeToTransactions = (callback, errorCallback) => {
       pendingReady = true
       publish()
     } catch (error) {
-      if (isActive) errorCallback?.(error)
+      if (isActive) errorCallback?.(importSaveError(error, "local-lookup"))
     }
   }
 
@@ -438,7 +511,7 @@ export const subscribeToTransactions = (callback, errorCallback) => {
     },
     (error) => {
       firestoreFailed = true
-      errorCallback?.(error)
+      errorCallback?.(importSaveError(error, "firestore-read"))
     },
   )
 
@@ -463,7 +536,7 @@ export const updateTransaction = async (id, updates) => {
       throw new Error("Transaction not found.")
     }
 
-    const normalized = normalizeTransaction({
+    const normalized = normalizeLocalTransaction({
       ...transactions[existingIndex],
       ...updates,
     })
@@ -477,7 +550,7 @@ export const updateTransaction = async (id, updates) => {
 
   const pendingRecord = await getPendingTransaction(user.uid, transactionId)
   if (pendingRecord) {
-    const normalized = normalizeTransaction({
+    const normalized = normalizeLocalTransaction({
       ...pendingRecord.transaction,
       ...updates,
     })

@@ -686,7 +686,7 @@ const Transactions = () => {
             className="theme-card theme-text flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border px-2 py-2 text-xs font-semibold transition-colors hover:bg-gray-100 md:gap-2 md:px-3 md:text-sm dark:hover:bg-gray-800"
           >
             <Upload className="h-4 w-4 md:h-[18px] md:w-[18px]" />
-            Import GPay
+            Import Statement
           </button>
           {activeTab === "income" && auth.currentUser?.uid ? (
             <button

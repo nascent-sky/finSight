@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node --test src/components/analytics/*.test.mjs src/components/transactions/*.test.mjs src/features/finance-ai/*.test.mjs netlify/**/*.test.mjs",
+    "test": "node --test src/components/analytics/*.test.mjs src/components/transactions/*.test.mjs src/features/finance-ai/*.test.mjs src/services/*.test.mjs netlify/**/*.test.mjs",
+    "test:firestore": "node tests/firestore/run.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

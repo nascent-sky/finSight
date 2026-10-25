@@ -152,6 +152,8 @@
                     <category android:name="android.intent.category.DEFAULT" />
 
                         <data android:mimeType="application/pdf" />
+                        <data android:mimeType="text/csv" />
+                        <data android:mimeType="application/csv" />
 
                 </intent-filter>
 

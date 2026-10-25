@@ -27,6 +27,7 @@ dev-dist/
 node_modules/
 dist/
 .env
+/tmp/emulators/
 
 # =========================================================
 # Android / Android Studio

@@ -86,7 +86,7 @@ android {
 
         
             // The data for the app to support web share target.
-            resValue "string", "shareTarget", '{\\"action\\":\\"https://finsight-pwa.netlify.app/share-target\\",\\"method\\":\\"POST\\",\\"enctype\\":\\"multipart/form-data\\",\\"params\\":{\\"files\\":[{\\"name\\":\\"statement\\",\\"accept\\":[\\"application/pdf\\"]}]}}'
+            resValue "string", "shareTarget", '{\\"action\\":\\"https://finsight-pwa.netlify.app/share-target\\",\\"method\\":\\"POST\\",\\"enctype\\":\\"multipart/form-data\\",\\"params\\":{\\"files\\":[{\\"name\\":\\"statement\\",\\"accept\\":[\\"application/pdf\\",\\"text/csv\\",\\"application/csv\\"]}]}}'
 
 
         // The hostname is used when building the intent-filter, so the TWA is able to

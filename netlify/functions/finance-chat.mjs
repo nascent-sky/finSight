@@ -2,12 +2,15 @@ import { verifyFirebaseToken } from "../lib/firebaseToken.js"
 import { retrieveFinancialRecords } from "../lib/financialRetrieval.js"
 import { explainWithGemini, explainSyntheticWithGemini, interpretSafeWithGemini, interpretWithGemini, requireGeminiConfiguration } from "../lib/geminiFinance.js"
 import { aiError } from "../lib/aiErrors.js"
+import { financeCapabilities, requireDevelopmentAccess } from "../lib/developmentPolicy.js"
+import { runDevelopmentConversation, validateDevelopmentMessages } from "../lib/developmentConversation.js"
 import { isContinuation, normalizeQuestion } from "../../src/features/finance-ai/questionLanguage.js"
 import { conversationContextFromPlan, localDateKey, planFinancialQuestion, validateConversationContext } from "../../src/features/finance-ai/questionPlanner.js"
 import { analyseFinancialQuery, createFinancialIndex, publicFinancialAnswer } from "../../src/features/finance-ai/financialEngine.js"
+import { FINANCE_ROUTING_VERSION } from "../../src/features/finance-ai/financeRouting.js"
 
 const MAX_BODY = 32 * 1024
-const json = (body, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Vary": "Origin" } })
+const json = (body, status = 200) => Response.json({ ...body, routingVersion: FINANCE_ROUTING_VERSION }, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Vary": "Origin" } })
 const fail = (message, status = 400, code = "AI_REQUEST_INVALID", origin = "application") => { throw aiError(message, { status, code, origin }) }
 
 async function readBody(request) {
@@ -42,7 +45,7 @@ function takeUsage(usage, uid, now) {
   return () => { entry.busy = false }
 }
 
-export function createChatHandler({ env = process.env, fetcher = fetch, verifyToken = verifyFirebaseToken, retrieve = retrieveFinancialRecords, explain = explainWithGemini, interpret = interpretWithGemini, interpretSafe = interpretSafeWithGemini, demonstrate = explainSyntheticWithGemini, now = Date.now } = {}) {
+export function createChatHandler({ env = process.env, fetcher = fetch, verifyToken = verifyFirebaseToken, retrieve = retrieveFinancialRecords, explain = explainWithGemini, interpret = interpretWithGemini, interpretSafe = interpretSafeWithGemini, demonstrate = explainSyntheticWithGemini, development = runDevelopmentConversation, now = Date.now } = {}) {
   const usage = new Map()
   return async (request) => {
     let release
@@ -55,7 +58,12 @@ export function createChatHandler({ env = process.env, fetcher = fetch, verifyTo
       if (!token) fail("Sign in to use FinSight AI. Guest records stay on this device.", 401)
       const uid = await verifyToken(token, env.FIREBASE_PROJECT_ID, fetcher)
       const body = await readBody(request)
-      if (!body || typeof body !== "object" || Array.isArray(body) || ![undefined, "personal", "synthetic"].includes(body.mode)) fail("Choose personal finances or a synthetic demonstration.")
+      if (!body || typeof body !== "object" || Array.isArray(body)) fail("Send a valid chat request.")
+      if (body.action === "capabilities") {
+        if (Object.keys(body).some((key) => key !== "action")) fail("Send only a capabilities request.")
+        return json(financeCapabilities(env, uid))
+      }
+      if (![undefined, "personal", "synthetic", "development"].includes(body.mode)) fail("Choose a supported financial chat mode.")
       if (body.mode === "synthetic") {
         if (Object.keys(body).some((key) => !["mode", "consent", "questionId", "history"].includes(key))) fail("Synthetic demos accept fixed question IDs only, never personal questions, records or context.")
         if (body.consent !== true) fail("Allow cloud AI before starting a Gemini demonstration.", 403, "AI_CONSENT_REQUIRED", "privacy")
@@ -64,16 +72,36 @@ export function createChatHandler({ env = process.env, fetcher = fetch, verifyTo
         const signal = AbortSignal.any([request.signal, AbortSignal.timeout(45000)])
         return json(await demonstrate({ env, questionId: body.questionId, history: body.history, signal }))
       }
+      const policy = financeCapabilities(env, uid)
+      const routingRequest = body.action === "route"
       // Questions are intent, never financial authority or an asserted identity.
-      if (Object.keys(body).some((key) => !["mode", "messages", "timezone", "consent", "context"].includes(key))) fail("Send questions and a bounded conversation scope only; financial totals and user IDs are not accepted.")
-      if (!Array.isArray(body.messages) || !body.messages.length || body.messages.length > 6) fail("Start a new chat or shorten the conversation.")
-      const messages = body.messages.map((message) => {
+      if (Object.keys(body).some((key) => !["mode", "messages", "timezone", "consent", "context", ...(routingRequest ? ["action"] : [])].includes(key))) fail("Send questions and a bounded conversation scope only; financial totals and user IDs are not accepted.")
+      if (routingRequest && body.consent !== true) fail("Enable cloud sharing before requesting conversational cloud routing.", 403, "AI_CONSENT_REQUIRED", "privacy")
+      // Eligibility is server authority. A stale personal-mode client cannot
+      // short-circuit Gemini for an eligible, consented development account.
+      const isDevelopment = body.mode === "development" || body.consent === true && policy.mode === "development"
+      if (isDevelopment) requireDevelopmentAccess(env, uid)
+      if (routingRequest && !isDevelopment) {
+        validateDevelopmentMessages(body.messages)
+        return json({ route: "protected", policy })
+      }
+      if (!isDevelopment && (!Array.isArray(body.messages) || !body.messages.length || body.messages.length > 6)) fail("Start a new chat or shorten the conversation.")
+      const messages = isDevelopment ? validateDevelopmentMessages(body.messages) : body.messages.map((message) => {
         if (message?.role !== "user" || typeof message.content !== "string" || !message.content.trim() || message.content.length > 1200) fail("The question history is invalid or a message is too long.")
         return { role: "user", content: message.content.trim() }
       })
       if (typeof body.timezone !== "string" || body.timezone.length > 80) fail("Choose a valid local timezone.")
       try { new Intl.DateTimeFormat("en-IN", { timeZone: body.timezone }).format() } catch { fail("Choose a valid local timezone.") }
       const instant = new Date(now())
+      if (isDevelopment) {
+        if (body.consent !== true) fail("Allow cloud sharing before sending fictional development questions and financial context to Gemini.", 403, "AI_CONSENT_REQUIRED", "privacy")
+        requireGeminiConfiguration(env, { privateContext: false })
+        release = takeUsage(usage, uid, now())
+        const signal = AbortSignal.any([request.signal, AbortSignal.timeout(45000)])
+        const result = await development({ env, uid, token, messages, context: body.context, timezone: body.timezone, now: instant, signal, retrieve, fetcher })
+        if (result.source !== "gemini_development" || result.fictionalDataOnly !== true || result.cloud?.status !== "used") fail("The development pipeline did not return a Gemini-generated answer. No local answer was substituted.", 502, "DEVELOPMENT_RESPONSE_MISMATCH", "provider")
+        return json({ ...result, route: "development", policy })
+      }
       const last = messages.at(-1).content
       const history = messages.slice(0, -1)
       const context = Object.hasOwn(body, "context") ? validateConversationContext(body.context, { asOf: localDateKey(instant, body.timezone) }) : undefined

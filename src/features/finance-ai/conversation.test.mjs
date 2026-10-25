@@ -139,11 +139,7 @@ test("cloud routing returns distinct interpretation/explanation sources and repo
   assert.equal(result.source, "gemini_intent")
   assert.deepEqual(Object.keys(sent).sort(), ["consent", "context", "messages", "signal", "timezone"])
   assert.ok(!JSON.stringify(sent).includes("today1"))
-  const failed = await ask("Why did spending increase?", null, { consent: true, requestCloud: async () => { throw new Error("Gemini key missing") } })
-  assert.equal(failed.source, "local")
-  assert.equal(failed.cloud.status, "unavailable")
-  assert.match(failed.cloud.reason, /key missing/)
-  assert.match(failed.answer, /recorded category increases/)
+  await assert.rejects(() => ask("Why did spending increase?", null, { consent: true, requestCloud: async () => { throw new Error("Gemini key missing") } }), /key missing/)
 })
 
 test("expense-category Income remains an expense, and duplicates/source bookmarks do not count twice", () => {

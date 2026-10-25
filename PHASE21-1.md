@@ -1,90 +1,144 @@
-# FinSight AI — Free-Tier Connectivity and Privacy
+# FinSight AI — Gemini-First Routing Priority Fix
 
-The reported HTTP 503 was an application privacy restriction, not evidence of a Gemini API failure. The implementation now separates safe intent interpretation, isolated synthetic demonstrations and personal financial explanations.
+## Confirmed causes and what remains unverified
 
-## Exact gate and refactor
+The routing investigation found separate source and control-flow problems.
 
-Previously requireGeminiConfiguration rejected every request when GEMINI_DATA_HANDLING !== "paid". Both the Netlify endpoint and the shared SDK request helper called that gate, including for intent interpretation.
+1. Checked-in HEAD f71d949 (AI Chat window) still contains the original local-first orchestrator. It plans and calculates locally before considering a cloud request, returns immediately for factual questions and empty data, and catches provider failures by returning a local answer. The full development modules are present only as uncommitted working-tree files. A Git deployment built from that commit would not contain the development implementation.
+2. In the development working copy, the development branch was already before local parsing, but it depended on a client boolean derived from one capability lookup.
+3. FinSightAI converted every failed capability lookup into mode=protected and cached that result for the page session. An unavailable, mismatched or older function could therefore turn a genuinely unknown routing state into a permanent local route.
+4. The backend previously entered development only when the frontend explicitly sent mode=development. A stale or incorrectly downgraded client could bypass it.
+5. The protected cloud path still converted intended provider failures into local answers. That made failures look like successful local financial responses.
 
-The helper now distinguishes whether private context will be transmitted. A backend key is required for every provider call. The paid-data-handling condition still protects both raw-question interpretation and explanations using real financial context. It does not block abstract intent requests or fixed synthetic demonstrations.
+The deployed Netlify function, deployed frontend build and actual signed-in UID were not accessed. These findings establish the source defects and the checked-in/working-copy difference; they do not prove which exact failure occurred in the live deployment.
 
-GEMINI_DATA_HANDLING=disabled, unset, or any value other than paid uses the safe path for cloud requests. It never grants permission to transmit real financial context. Only the exact paid value enables the existing personal-context path, after user consent.
+The local process has no configured Gemini key, development handling flag, fictional-data confirmation or UID allowlist. Only .env.example is present. These local facts do not establish the Netlify runtime settings.
 
-## Data paths
+## Corrected routing
 
-| Path | Data sent to Gemini | Calculations/data access |
-| --- | --- | --- |
-| Direct financial answer | Nothing | Existing canonical browser engine, or authenticated backend |
-| Safe free-tier intent | Program-owned operator and metric enums, a continuation boolean and an optional previous intent enum | Exact dates, category/method filters, targets, retrieval and paise arithmetic stay in FinSight |
-| Synthetic demo | Fixed server-owned fictional facts and fixed example questions | Isolated fictional records; no Firestore read or personal feed subscription |
-| Paid personal explanation | Existing relevant calculated facts, bounded redacted expense details and bounded user question history | Authenticated server retrieval and deterministic calculations; existing paid gate and consent remain required |
+For every consented conversational message, the production UI now uses the authenticated /api/finance-chat route action BEFORE local intent recognition or financial answer generation.
 
-The free-tier projection never copies raw questions, past questions, amounts, dates, timezone, category labels, payment methods, identifiers, record counts, financial summaries, private notes or transaction arrays into the provider payload. Unknown meaning fails closed with a local clarification requirement. This is a finite semantic projection, not a claim that arbitrary text becomes safe through redaction.
+The server re-evaluates the verified Firebase UID and current configuration on each message:
 
-Gemini selects only a validated operation in safe mode. It cannot return dates, amounts, filters, arbitrary database queries or mutations. Explicit locally understood intent and filters are checked before retrieval. Real records are queried only under the UID from the verified Firebase token and are never passed to the free-tier model.
+- If development eligibility is satisfied, Gemini interprets the full sanitized question and recent conversation, proposes validated read-only financial tools, receives verified backend results and generates the final explanation.
+- If protected processing is confirmed, the server returns an explicit protected decision and diagnostic reasons, without financial retrieval or a provider call. The existing browser financial engine then answers ordinary factual questions locally.
+- If a route cannot be verified, the operation fails visibly. An unknown state is never converted into protected mode.
+- Eligible, consented legacy personal-mode requests are also routed into development on the server, before deterministic question planning.
+- If development access disappears during an existing development conversation, the chat cannot silently switch its scope into local responses.
 
-Google's [Gemini terms](https://ai.google.dev/gemini-api/terms) exclude personal, confidential and sensitive submissions from unpaid services; the safe path therefore avoids personal wording as well as actual financial records.
+The capability lookup remains useful for consent text and diagnostics. It no longer controls the final route through a permanent frontend cache. Failed checks have a Retry routing check button and retain their actual error.
 
-## Synthetic conversations
+No new keyword rules, UI redesign, vector database, transaction mutation or Firestore schema change was introduced.
 
-The /ai page now offers My finances and Synthetic Gemini demo. The demo is explicitly labelled fictional in its notice, answer prefix, source line and comparison cards. Its composer accepts a fixed example question rather than arbitrary personal text.
+## Eligibility and privacy
 
-The API accepts mode=synthetic, consent, a questionId and bounded history of fixed question IDs. It rejects real messages, records, financial context, arbitrary prompts and client claims that data is synthetic. The adapter constructs its data internally from fixed fictional records; callers cannot bypass the paid gate by passing synthetic=true alongside real analysis.
+Full development routing still requires all of:
 
-The demo uses the production Google SDK adapter to generate its answer. Its financial figures come from the deterministic engine and the existing verified-fact placeholder guard. There is no canned runtime model answer. Provider failures remain errors.
+- GEMINI_DATA_HANDLING=development.
+- GEMINI_DEVELOPMENT_DATA=fictional.
+- The exact verified Firebase UID is included in GEMINI_DEVELOPMENT_UIDS, using the existing comma/whitespace-separated server-side allowlist.
+- Explicit cloud-sharing consent.
+- Appropriate signed-in authentication, origin, Firebase project and existing data-access checks.
 
-Synthetic history is rebuilt from up to twenty approved questions using structured scope, so category and period survive long follow-up chains. Personal and demo chats are isolated: switching modes remounts the session and clears history, scope and consent. New Chat, account changes and cancellation retain their existing reset behavior.
+GEMINI_API_KEY must also be configured for a provider request to succeed. Missing credentials produce a configuration error, not a local fallback.
 
-## Provider and configuration errors
+The UID is derived exclusively from the verified Firebase token. Neither a client mode, submitted context nor a model tool request can choose another user. UIDs, the allowlist and keys are never returned in diagnostics.
 
-Errors now include a stable code and origin, plus providerStatus when a provider HTTP status is available. Raw provider errors, credentials and prompts are not returned or logged.
+Fictional-data confirmation remains an operator assertion for designated test-only accounts. Ordinary production users retain protected handling; personal-context explanations retain the existing paid-service gate. Development sanitization, excluded record people/notes/IDs, exact paise calculations, sample exclusion, authenticated Firestore access and financial-output guards remain in force.
 
-| Example | Origin | Code |
-| --- | --- | --- |
-| Missing backend key | configuration | GEMINI_KEY_MISSING |
-| Private-context processing not authorized | privacy | GEMINI_PRIVATE_CONTEXT_DISABLED |
-| Free-tier wording cannot be safely projected | privacy | SAFE_INTENT_NEEDS_CLARIFICATION |
-| Gemini rate/quota rejection | provider | GEMINI_RATE_LIMITED |
-| Gemini rejects credentials/permissions | provider | GEMINI_AUTH_FAILED |
-| Configured model unavailable | provider | GEMINI_MODEL_UNAVAILABLE |
-| Gemini rejects request parameters | provider | GEMINI_REQUEST_REJECTED |
-| Invalid/unverified model output | provider | GEMINI_OUTPUT_INVALID |
-| Application account quota reached | application | AI_RATE_LIMITED |
+Existing required server settings are unchanged:
 
-The frontend preserves this metadata and distinguishes backend configuration, privacy restrictions and Gemini provider failures in visible messages. A local fallback remains labelled local; a successful intent call is labelled Gemini interpreted · FinSight calculated. A synthetic result is labelled a synthetic Gemini demonstration.
+| Variable | Development setting |
+| --- | --- |
+| GEMINI_API_KEY | Existing backend key |
+| GEMINI_MODEL | gemini-3.8-flash |
+| GEMINI_DATA_HANDLING | development |
+| GEMINI_DEVELOPMENT_DATA | fictional |
+| GEMINI_DEVELOPMENT_UIDS | Exact designated test Firebase UIDs |
+| FIREBASE_PROJECT_ID | Existing Firebase project, finsight-web |
+| AI_ALLOWED_ORIGIN | Exact application origin, or the existing Netlify origin fallbacks |
 
-Authentication, anonymous-user restrictions, origin validation, consent, request-size limits, IP/domain limits and shared per-UID usage/concurrency limits remain enforced for both modes.
+These values were not enabled or changed remotely. The example configuration remains disabled by default.
 
-## SDK verification
+## Failures and source labels
 
-The installed official SDK remains @google/genai 2.31.0, backend-only. It uses new GoogleGenAI with GEMINI_API_KEY and models.generateContent with the exact configured model, default gemini-3.8-flash. No fallback model is selected.
+Routing diagnostics now distinguish:
 
-The implementation uses responseMimeType=application/json, responseJsonSchema and supported LOW thinking for intent requests, with the existing LOW/MEDIUM explanation choice. No MINIMAL setting is used. SDK attempts, timeout, output bounds and cancellation remain explicit.
+| Code | Meaning |
+| --- | --- |
+| DEVELOPMENT_DISABLED | The backend is not configured for development mode |
+| TEST_UID_NOT_ALLOWLISTED | The authenticated UID does not match the test allowlist |
+| CLOUD_SHARING_DISABLED | The user has not enabled sharing |
+| DEVELOPMENT_DATA_UNCONFIRMED | Fictional test-data policy is not confirmed |
+| GEMINI_KEY_MISSING | Backend Gemini configuration is missing |
+| GEMINI_PROVIDER_FAILED and other existing provider codes | A provider request failed |
+| AI_ROUTING_VERSION_MISMATCH | The function and frontend routing contracts do not match |
+| AI_BACKEND_UNAVAILABLE | The AI function could not be reached or returned an unsupported response |
+| DEVELOPMENT_RESPONSE_MISMATCH | An intended development route returned something other than a confirmed Gemini response |
+| DEVELOPMENT_SESSION_CHANGED | A development conversation lost eligibility and cannot silently become a local chat |
 
-This matches Google's [generateContent JavaScript example](https://ai.google.dev/api/generate-content) and the model's documented [structured-output and thinking support](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash). Official SDK HTTP serialization is exercised through mocked transports for both the free intent and synthetic response paths.
+The frontend and function share an explicit routingVersion contract. An older function rejecting capability/route requests is identified as a deployment mismatch instead of being interpreted as protected mode.
 
-## Configuration
+Provider/configuration/routing errors remain retryable errors and use the existing Retry/Edit controls. Intended Gemini requests no longer fall back to local financial answers, including in the protected analytical path. Ordinary factual protected calculations continue working locally.
 
-No new free-tier switch or dependency is required.
+Response sources are validated. Gemini-generated development responses require the correct source, fictional-data marker, routing version and successful development processing metadata. Unknown or inconsistent sources cannot be labelled local or Gemini-generated by default.
 
-- GEMINI_API_KEY: existing backend key; never a VITE_ variable.
-- GEMINI_MODEL: existing model configuration, default gemini-3.8-flash.
-- GEMINI_DATA_HANDLING: keep disabled or unset for safe intent and synthetic-only model payloads. Set paid only after the operator establishes appropriate paid-service data handling for that API project.
-- FIREBASE_PROJECT_ID and permitted origin configuration: retained unchanged.
+Development clarification prose is now generated by Gemini too. A model planning result that requests clarification no longer receives a canned local sentence under a Gemini-generated label.
 
-The key's actual quota and model entitlement are determined by the provider. This change does not enable billing, infer a billing tier from a key, purchase quota or deploy any configuration. A missing/unsupported model or exhausted free quota returns a provider-specific error.
+## Interpretation and exact financial results
 
-The local environment contained no Gemini key and no configured .env file. No successful live Gemini response is claimed. Existing deployed secret configuration was not accessed or changed.
+The existing development pipeline remains responsible for:
 
-## Validation and limits
+1. Sending full sanitized questions, bounded user/assistant history and validated scope to Gemini.
+2. Validating up to three structured financial queries, real local-date boundaries, categories, payment filters and user-requested savings targets.
+3. Coalescing date ranges and retrieving only the authenticated account's relevant transactions.
+4. Calculating exact figures and constructing verified facts/cards in the backend.
+5. Returning those results to Gemini for its final conversational response.
+6. Rejecting invented figures, unknown fact references and unsupported cards.
 
-**133 automated tests passed. ESLint passed. Production/PWA build passed.** The existing large-bundle and outdated Browserslist warnings remain.
+The shared client transport is now independently testable and is the same implementation used by the Firebase-backed production service. Tests exercise its HTTP serialization, error handling and source validation against the actual Netlify function handler and official SDK adapter with mocked provider transport.
 
-New tests cover safe requests reaching the official SDK transport, absence of real values/history in model input, exact local scope preservation, synthetic generated responses and long follow-up context, zero demo financial retrieval, private-context bypass rejection, invalid model output, auth/consent/rate limits, error origins/codes, and local answers without a key.
+Try Asking, Keep Exploring, comparison cards, New Chat, themes, responsive CSS and the existing Netlify architecture remain intact.
 
-All final provider tests use fake credentials and mocked network transports. They verify wiring and isolation, not live model connectivity or free-tier quota.
+## Validation
 
-The safe free-tier path deliberately cannot interpret arbitrary private wording. Unsupported/ambiguous meaning requires clarification, while paid processing remains gated. Synthetic questions and data are intentionally fixed. Existing 36-month/5,000-record retrieval limits, 50-item lists, bounded conversations, financial arithmetic and output guards remain.
+**167 automated tests passed. ESLint passed. Production/PWA build passed.** Existing large-chunk and outdated Browserslist warnings remain.
 
-No application or backend server was started, no browser preview was opened, and nothing was deployed. Live financial records and Firestore schema were not modified.
+Thirteen new vertical integration regressions verify:
 
+- Client → orchestrator → Netlify → mocked official Gemini SDK routing before any local planning, including a deliberately unusable local index.
+- All seven requested conversational inputs, recent assistant history and retained scope.
+- Validated tools, exact authenticated retrieval and verified results returned to Gemini.
+- Provider failure after retrieval remains an error.
+- Stale protected flags and legacy personal-mode calls cannot bypass eligible development routing.
+- Older capability/route contracts are deployment errors.
+- Missing key, disabled mode, non-allowlisted UID, unconfirmed fictional data and disabled consent have distinct outcomes.
+- Ordinary local calculations remain available.
+- Invalid tool operations and cross-user identity assertions cannot change retrieval.
+- Mismatched source labels are rejected.
+- Gemini-generated clarification text.
+- Configuration changes are re-evaluated per message rather than trusting a permanent page cache.
+
+Existing auth, Firestore isolation, protected/free-tier, synthetic demo, numerical accuracy, privacy, retry, cancellation, concurrency, Analytics and transaction regressions also pass.
+
+The tests use fictional records and explicit mock provider responses. They do not prove live Gemini connectivity, natural-language quality, quota availability or the configuration/build currently deployed on Netlify.
+
+No application server, Netlify Dev or browser preview was started. Nothing was deployed and no live financial data was modified.
+
+## Files corrected for this routing update
+
+| File | Change |
+| --- | --- |
+| src/features/finance-ai/chatOrchestrator.js | Server routing before local processing; remove provider-error local fallbacks |
+| src/features/finance-ai/financeRouting.js | Shared routing version, diagnostics and response-source validation |
+| src/services/financeChatService.js | Thin Firebase-backed wrapper around the actual client transport |
+| src/services/financeChatClient.js | Authenticated route requests, full history serialization, deployment/source checks and retryable errors |
+| src/pages/FinSightAI.jsx | Route every consented question; retain lookup failures; retry checks and truthful labels/reasons |
+| netlify/functions/finance-chat.mjs | Server-authoritative per-message routing and eligible personal-request upgrade |
+| netlify/lib/developmentPolicy.js | Distinct eligibility checks and reasons without exposing identities |
+| netlify/lib/developmentConversation.js | Gemini-generated clarification instead of a canned development response |
+| netlify/tests/routing.test.mjs | Full client/function/SDK routing regressions |
+| netlify/tests/development.test.mjs | Updated capability contract assertion |
+| src/features/finance-ai/conversation.test.mjs | Assert intended provider failures stay errors |
+| tests/browser/finance-chat-fixture.jsx | Explicit isolated routing mock; fixture was not opened |
+| PHASE21-1.md | This investigation, correction and verification report |

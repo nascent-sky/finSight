@@ -4,6 +4,8 @@ import { FINANCIAL_INTENTS, localDateKey, validateInterpretedIntent } from "../.
 import { applySafeIntent, buildSafeIntentInput } from "./safeFinancialIntent.js"
 import { prepareSyntheticConversation } from "./syntheticFinance.js"
 import { aiError } from "./aiErrors.js"
+import { setTimeout as delay } from "node:timers/promises"
+import { requireDevelopmentAccess, sanitizeDevelopmentInput } from "./developmentPolicy.js"
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
 export const FINANCE_INSTRUCTIONS = `You are FinSight AI, a concise, thoughtful personal budgeting assistant for INR records.
@@ -22,14 +24,14 @@ export function requireGeminiConfiguration(env, { privateContext = true } = {}) 
   if (!env.GEMINI_API_KEY?.trim()) throw aiError("Gemini needs GEMINI_API_KEY on the backend. Local financial answers remain available.", { code: "GEMINI_KEY_MISSING", origin: "configuration" })
 }
 
-async function generateStructured({ env, context, instructions, schema, privateContext = true, thinking = "LOW", maxOutputTokens = 1600, signal, clientFactory = (options) => new GoogleGenAI(options) }) {
+async function generateStructured({ env, context, instructions, schema, privateContext = true, thinking = "LOW", maxOutputTokens = 1600, signal, retry503 = false, timeout = 32000, wait = (ms, signal) => delay(ms, undefined, { signal }), clientFactory = (options) => new GoogleGenAI(options) }) {
   requireGeminiConfiguration(env, { privateContext })
   const model = env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
   if (Buffer.byteLength(JSON.stringify(context), "utf8") > 40 * 1024) throw Object.assign(new Error("The relevant financial context is too large. Please narrow the category or period."), { status: 413 })
-  const client = clientFactory({ apiKey: env.GEMINI_API_KEY, httpOptions: { timeout: 32000, retryOptions: { attempts: 1 } } })
+  const client = clientFactory({ apiKey: env.GEMINI_API_KEY, httpOptions: { timeout, retryOptions: { attempts: 1 } } })
   let response
   try {
-    response = await client.models.generateContent({
+    const request = {
       model,
       contents: [{ role: "user", parts: [{ text: JSON.stringify(context) }] }],
       config: {
@@ -40,8 +42,20 @@ async function generateStructured({ env, context, instructions, schema, privateC
         responseJsonSchema: schema,
         abortSignal: signal,
       },
-    })
+    }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (signal?.aborted) throw signal.reason
+      try { response = await client.models.generateContent(request); break }
+      catch (error) {
+        if (!retry503 || Number(error.status || error.code) !== 503 || attempt !== 0 || signal?.aborted) throw error
+        await wait(250 + Math.floor(Math.random() * 150), signal)
+      }
+    }
   } catch (error) {
+    if (signal?.aborted) {
+      if (signal.reason?.name === "TimeoutError") throw aiError("Gemini did not complete within the request deadline. Please retry.", { status: 504, code: "GEMINI_TIMEOUT", origin: "provider" })
+      throw signal.reason || new DOMException("Request cancelled", "AbortError")
+    }
     const status = Number(error.status || error.code)
     if (status === 404 || (status === 400 && /model|not supported|not found/i.test(error.message || ""))) throw aiError(`The configured Gemini model ${model} is unavailable or unsupported for this API project. No fallback model was used.`, { code: "GEMINI_MODEL_UNAVAILABLE", origin: "provider", providerStatus: status })
     if (status === 429) throw aiError("Gemini rejected the request because its quota or rate limit was reached. Please retry later.", { status: 429, code: "GEMINI_RATE_LIMITED", origin: "provider", providerStatus: status })
@@ -51,6 +65,13 @@ async function generateStructured({ env, context, instructions, schema, privateC
   }
   if (response.promptFeedback?.blockReason || response.candidates?.[0]?.finishReason !== "STOP") throw aiError("Gemini could not finish a supported answer. Please rephrase or retry.", { status: 502, code: "GEMINI_OUTPUT_BLOCKED", origin: "provider" })
   try { return JSON.parse(response.text) } catch { throw aiError("Gemini returned unreadable structured output. Please retry.", { status: 502, code: "GEMINI_OUTPUT_INVALID", origin: "provider" }) }
+}
+
+// Only the explicit development entry point can supply full fictional context
+// without the paid gate. Its UID is verified by the endpoint and rechecked here.
+export async function generateDevelopmentJson({ env, uid, token, context, instructions, schema, thinking = "LOW", maxOutputTokens = 2400, signal, clientFactory, wait }) {
+  requireDevelopmentAccess(env, uid)
+  return generateStructured({ env, context: sanitizeDevelopmentInput(context, { env, uid, token }), instructions, schema, thinking, maxOutputTokens, signal, clientFactory, wait, privateContext: false, retry503: true, timeout: 16000 })
 }
 
 async function explainFacts({ env, plan, analysis, questions, privateContext = true, signal, clientFactory, synthetic = false }) {

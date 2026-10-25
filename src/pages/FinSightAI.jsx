@@ -3,7 +3,8 @@ import { ArrowDownLeft, ArrowRight, ArrowUpRight, ChartNoAxesCombined, CircleAle
 import { Link } from "react-router-dom"
 import { useExpenses } from "../context/ExpensesContext"
 import { subscribeToTransactions } from "../services/transactionService"
-import { requestFinanceChat, requestFinanceDemo } from "../services/financeChatService"
+import { requestFinanceCapabilities, requestFinanceChat, requestFinanceDemo, requestFinanceRoute } from "../services/financeChatService"
+import { financeSourceLabel, localRoutingReason } from "../features/finance-ai/financeRouting"
 import { SYNTHETIC_QUESTIONS, syntheticSuggestions } from "../features/finance-ai/syntheticDemo"
 import { INITIAL_QUESTIONS } from "../features/finance-ai/financialContext"
 import { createFinancialIndex } from "../features/finance-ai/financialEngine"
@@ -29,7 +30,7 @@ function ComparisonCard({ card }) {
   )
 }
 
-export function FinanceChatSession({ user, isOnline, mode = "personal", onModeChange, subscribeRecords = subscribeToTransactions, ask = requestFinanceChat, askDemo = requestFinanceDemo }) {
+export function FinanceChatSession({ user, isOnline, mode = "personal", onModeChange, subscribeRecords = subscribeToTransactions, ask = requestFinanceChat, askDemo = requestFinanceDemo, getCapabilities = requestFinanceCapabilities, routeQuestion = requestFinanceRoute }) {
   const isDemo = mode === "synthetic"
   const [feed, setFeed] = useState({ ready: false, error: "", transactions: [] })
   const [messages, setMessages] = useState([])
@@ -40,6 +41,7 @@ export function FinanceChatSession({ user, isOnline, mode = "personal", onModeCh
   const [feedAttempt, setFeedAttempt] = useState(0)
   const [sendAttempt, setSendAttempt] = useState(0)
   const [cloudStatus, setCloudStatus] = useState("not_checked")
+  const [policy, setPolicy] = useState(null)
   const sessionContext = useRef(null)
   const demoHistory = useRef([])
   const controller = useRef(null)
@@ -47,6 +49,19 @@ export function FinanceChatSession({ user, isOnline, mode = "personal", onModeCh
   const inputRef = useRef(null)
   const guest = !user?.uid || user.isAnonymous
   const financialIndex = useMemo(() => createFinancialIndex(feed.transactions), [feed.transactions])
+  const isDevelopment = !isDemo && policy?.mode === "development"
+  const checkingPolicy = !isDemo && !guest && isOnline && policy === null
+
+  useEffect(() => {
+    if (guest || isDemo || !isOnline || policy !== null) return undefined
+    const active = new AbortController()
+    getCapabilities({ user, signal: active.signal }).then((value) => {
+      if (!active.signal.aborted) setPolicy(value)
+    }).catch((failure) => {
+      if (!active.signal.aborted) setPolicy({ error: failure.message || "Cloud routing could not be checked. Retry the routing check.", code: failure.code || "AI_ROUTING_UNVERIFIED" })
+    })
+    return () => active.abort()
+  }, [guest, isDemo, isOnline, policy, getCapabilities, user])
 
   useEffect(() => {
     if (guest || isDemo) return undefined
@@ -93,18 +108,20 @@ export function FinanceChatSession({ user, isOnline, mode = "personal", onModeCh
     controller.current = active
     try {
       const now = new Date()
-      const recent = history.slice(0, -1).filter((message) => message.role === "user").slice(-5).map(({ role, content }) => ({ role, content }))
+      const previous = history.slice(0, -1)
+      const recent = previous.slice(-10).map(({ role, content }) => ({ role, content: role === "assistant" ? content.slice(0, 2000) : content }))
       const selectedDemo = isDemo ? SYNTHETIC_QUESTIONS.find((question) => question.label === content) : null
       if (isDemo && !selectedDemo) throw new Error("Choose a fixed synthetic demo question below.")
       const result = isDemo ? await askDemo({ user, questionId: selectedDemo.id, history: demoHistory.current, consent, signal: active.signal })
-        : await answerFinanceQuestion({ index: financialIndex, question: content, history: recent, context: sessionContext.current, consent, signal: active.signal, now, requestCloud: (request) => ask({ user, ...request }) })
+        : await answerFinanceQuestion({ index: financialIndex, question: content, history: recent, context: sessionContext.current, consent, development: isDevelopment, policy, signal: active.signal, now, requestRoute: (request) => routeQuestion({ user, ...request }), requestCloud: (request) => ask({ user, ...request }) })
       if (active.signal.aborted) return
       sessionContext.current = result.context || null
+      if (result.policy) setPolicy(result.policy)
       if (isDemo) demoHistory.current = result.demoHistory || []
       if (["used", "unavailable"].includes(result.cloud?.status)) setCloudStatus(result.cloud.status)
-      setMessages([...history, { role: "assistant", content: result.answer, cards: result.cards, asOf: result.asOf, source: result.source, cloud: result.cloud }])
+      setMessages([...history, { role: "assistant", content: result.answer, cards: result.cards, asOf: result.asOf, source: result.source, cloud: result.cloud, routing: result.routing }])
     } catch (failure) {
-      if (!active.signal.aborted) setError(failure.message || "FinSight AI could not connect. Please retry.")
+      if (!active.signal.aborted) { setCloudStatus("unavailable"); setError(failure.message || "FinSight AI could not connect. Please retry.") }
     } finally {
       if (controller.current === active) { controller.current = null; setBusy(false) }
     }
@@ -127,6 +144,9 @@ export function FinanceChatSession({ user, isOnline, mode = "personal", onModeCh
         </header>
         {onModeChange && <div className="ai-sharing" role="group" aria-label="Chat data mode"><button type="button" aria-pressed={!isDemo} disabled={busy} onClick={() => onModeChange("personal")}>My finances</button><button type="button" aria-pressed={isDemo} disabled={busy || guest} onClick={() => onModeChange("synthetic")}>Synthetic Gemini demo</button></div>}
         {isDemo && <div className="ai-notice" role="status"><Sparkles size={18} /><div><strong>Synthetic demonstration · fictional data</strong><p>This isolated conversation uses fixed example records and questions. It never loads your financial records. Choose a prompt below to request a Gemini response.</p></div></div>}
+        {isDevelopment && <div className="ai-notice" role="status"><Sparkles size={18} /><div><strong>Development mode · fictional test data only</strong><p>This account is enabled by the server for full Gemini conversation using fictional records. This mode is not approved for real personal financial information.</p></div></div>}
+        {policy?.error && <div className="ai-sharing" role="alert"><span>{policy.error}</span><button type="button" disabled={busy} onClick={() => setPolicy(null)}>Retry routing check</button></div>}
+        {!isDemo && !guest && policy && !policy.error && <p className="ai-sync-status" role="status" data-routing-code={localRoutingReason(policy, consent).code}>{localRoutingReason(policy, consent).message}</p>}
 
         {guest ? (
           <div className="ai-notice" role="status"><LockKeyhole size={18} /><div><strong>Sign in to connect your finances</strong><p>AI chat is available for signed-in accounts. Your guest transactions stay on this device.</p><Link className="ai-text-link" to="/login?returnTo=/ai">Sign in to FinSight <ArrowRight size={14} /></Link></div></div>
@@ -135,9 +155,9 @@ export function FinanceChatSession({ user, isOnline, mode = "personal", onModeCh
         ) : feed.error ? (
           <div className="ai-notice" role="alert"><CircleAlert size={18} /><div><strong>Couldn’t connect to your records</strong><p>{feed.error}</p><button type="button" className="ai-text-link" onClick={() => setFeedAttempt((attempt) => attempt + 1)}>Reload records <RotateCcw size={14} /></button></div></div>
         ) : !consent ? (
-          <div className="ai-notice ai-consent"><ShieldCheck size={20} /><div><strong>You choose when to share</strong>{isDemo ? <p>The demo sends only server-owned fictional financial facts and fixed example questions to Gemini. No personal text or financial records are accepted.</p> : <><p>Direct answers use your synced records on this device. Free-tier Gemini receives only generic intent hints: no raw questions, actual amounts, dates, category labels, private notes, identifiers or financial summaries. Exact filters and calculations stay in FinSight.</p><p>If the operator has confirmed paid data handling, Gemini can also interpret your question and recent questions and explain relevant calculated totals, category/date aggregates and up to five expenses. Names, notes and transaction IDs are excluded.</p></>}<p>Gemini requires a configured backend key. Allowing sharing does not confirm availability. Chat stays in memory while this page is open.</p><button type="button" className="ai-enable" onClick={() => setConsent(true)}>Allow cloud AI for this chat <ArrowRight size={14} /></button><a className="ai-privacy-link" href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noreferrer">Gemini data policy</a></div></div>
+          <div className="ai-notice ai-consent"><ShieldCheck size={20} /><div><strong>You choose when to share</strong>{isDemo ? <p>The demo sends only server-owned fictional financial facts and fixed example questions to Gemini. No personal text or financial records are accepted.</p> : isDevelopment ? <p>Allow full questions, recent conversation, selected dates/categories/payment methods, relevant fictional transaction details and verified financial summaries to be sent to Gemini. Record people, notes and IDs are excluded; known identifiers and credentials are removed from provider input. Use only fictional questions and test records in this mode. Direct answers remain local until you allow sharing.</p> : <><p>Direct answers use your synced records on this device. Free-tier Gemini receives only generic intent hints: no raw questions, actual amounts, dates, category labels, private notes, identifiers or financial summaries. Exact filters and calculations stay in FinSight.</p><p>If the operator has confirmed paid data handling, Gemini can also interpret your question and recent questions and explain relevant calculated totals, category/date aggregates and up to five expenses. Record names, notes and transaction IDs are excluded.</p></>}<p>For server-confirmed fictional development accounts, cloud sharing permits full questions, recent conversation and relevant fictional financial context. Otherwise the protected data policy applies.</p><p>Gemini requires a configured backend key. Allowing sharing does not confirm availability. Chat stays in memory while this page is open.</p><button type="button" className="ai-enable" disabled={checkingPolicy || Boolean(policy?.error)} onClick={() => setConsent(true)}>{checkingPolicy ? "Checking cloud mode…" : "Allow cloud AI for this chat"} <ArrowRight size={14} /></button><a className="ai-privacy-link" href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noreferrer">Gemini data policy</a></div></div>
         ) : (
-          <div className="ai-sharing"><span><ShieldCheck size={14} /> Cloud sharing allowed · {cloudStatus === "used" ? "Gemini used on last cloud request" : cloudStatus === "unavailable" ? "Gemini unavailable on last attempt" : "Gemini availability not checked"}</span><button type="button" onClick={() => reset(true)}>Turn off & clear</button></div>
+          <div className="ai-sharing"><span><ShieldCheck size={14} /> Cloud sharing allowed · {cloudStatus === "used" ? "Gemini used on last cloud request" : cloudStatus === "unavailable" ? "Cloud request failed on last attempt" : "Gemini availability not checked"}</span><button type="button" onClick={() => reset(true)}>Turn off & clear</button></div>
         )}
         {!isDemo && !guest && isOnline && !feed.ready && !feed.error && <p className="ai-sync-status" role="status">Syncing your records before AI can answer…</p>}
 
@@ -153,7 +173,7 @@ export function FinanceChatSession({ user, isOnline, mode = "personal", onModeCh
           ) : messages.map((message, index) => (
             <article className={`ai-message ai-message-${message.role}`} key={`${index}-${message.role}`} aria-label={message.role === "user" ? "You" : "FinSight AI"}>
               {message.role === "assistant" && <span className="ai-message-sparkle"><Sparkles size={19} /></span>}
-              <div className="ai-message-body"><p className="ai-message-author">{message.role === "user" ? "You" : "FinSight AI"}</p><p className="ai-message-text">{message.content}</p>{message.cards?.map((card) => <ComparisonCard key={card.id} card={card} />)}{message.asOf && <p className="ai-record-date">{message.source === "gemini_demo" ? "Synthetic demonstration · Gemini response · Fictional reference date" : message.source === "gemini" ? "Gemini cloud explanation · Records through" : message.source === "gemini_intent" ? "Gemini interpreted · FinSight calculated · Records through" : "Local financial answer · Records through"} {message.asOf}.</p>}{message.cloud?.reason && <p className="ai-record-date" role="status">{message.cloud.reason}</p>}</div>
+              <div className="ai-message-body"><p className="ai-message-author">{message.role === "user" ? "You" : "FinSight AI"}</p><p className="ai-message-text">{message.content}</p>{message.cards?.map((card) => <ComparisonCard key={card.id} card={card} />)}{message.asOf && <p className="ai-record-date">{financeSourceLabel(message.source)} · {message.source === "gemini_demo" ? "Fictional reference date" : "Records through"} {message.asOf}.</p>}{message.cloud?.reason && <p className="ai-record-date" role="status">{message.cloud.reason}</p>}{message.source === "local" && message.routing && <p className="ai-record-date" role="status" data-routing-code={message.routing.code}>{message.routing.message}</p>}</div>
             </article>
           ))}
           {busy && <div className="ai-typing" role="status" key={sendAttempt}><Sparkles size={18} /><span>Looking at your records</span><span className="ai-dots" aria-hidden="true"><i /><i /><i /></span></div>}
@@ -168,7 +188,7 @@ export function FinanceChatSession({ user, isOnline, mode = "personal", onModeCh
             {isDemo ? <select className="ai-demo-select" aria-label="Synthetic demo question" value={input} onChange={(event) => setInput(event.target.value)} disabled={!canSend}><option value="">Choose a fictional example question…</option>{SYNTHETIC_QUESTIONS.map((question) => <option value={question.label} key={question.id}>{question.label}</option>)}</select> : <textarea ref={inputRef} aria-label="Ask FinSight AI" rows={2} maxLength={1200} value={input} onChange={(event) => setInput(event.target.value)} disabled={unavailable || busy || Boolean(error) || messages.length >= 40} placeholder={guest ? "Sign in to start a conversation" : !isOnline ? "Reconnect to continue your chat" : "Ask anything about your finances…"} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(input) } }} />}
             <button type="submit" className="ai-send" aria-label="Send question" disabled={!canSend || !input.trim()}><Send size={19} /></button>
           </form>
-          <div className="ai-footer-note"><span><LockKeyhole size={11} /> {isDemo ? "Fictional examples only · isolated chat" : guest ? "Guest data stays on your device" : consent ? "Safe intents · personal context requires paid handling" : "Direct answers stay on this device"}</span><span>{input.length > 1000 ? `${input.length}/1200 · ` : ""}AI can make mistakes. Check important details.</span></div>
+          <div className="ai-footer-note"><span><LockKeyhole size={11} /> {isDevelopment ? "Development only · fictional test account" : isDemo ? "Fictional examples only · isolated chat" : guest ? "Guest data stays on your device" : consent ? "Safe intents · personal context requires paid handling" : "Direct answers stay on this device"}</span><span>{input.length > 1000 ? `${input.length}/1200 · ` : ""}AI can make mistakes. Check important details.</span></div>
           {!isDemo && !guest && feed.ready && feed.transactions.length === 0 && <p className="ai-no-records">No recorded transactions yet. <Link to="/expenses">Add a transaction</Link> to get personal insights.</p>}
         </footer>
       </section>

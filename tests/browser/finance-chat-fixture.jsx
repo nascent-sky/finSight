@@ -17,6 +17,9 @@ const records = [
 ]
 const subscribeRecords = (callback) => { callback(records, { isReady: true, fromCache: false }); return () => {} }
 const user = { uid: "local-qa-only", isAnonymous: false }
+const policy = { routingVersion: 1, mode: "protected", cloudConfigured: true, fictionalDataOnly: false, reasons: [{ code: "DEVELOPMENT_DISABLED", message: "Local QA fixture uses protected processing." }] }
+const getCapabilities = async () => policy
+const routeQuestion = async () => ({ route: "protected", policy })
 
 export default function Fixture() {
   const [mode, setMode] = useState("light")
@@ -48,7 +51,7 @@ export default function Fixture() {
       <output aria-label="QA request count">Requests: {calls.length}</output>
       <output aria-label="QA last question">Last question: {calls.at(-1) || "none"}</output>
     </div>
-    <FinanceChatSession key={guest ? "guest" : account} user={guest ? null : { ...user, uid: account }} isOnline={online} subscribeRecords={subscribeRecords} ask={ask} />
+    <FinanceChatSession key={guest ? "guest" : account} user={guest ? null : { ...user, uid: account }} isOnline={online} subscribeRecords={subscribeRecords} ask={ask} getCapabilities={getCapabilities} routeQuestion={routeQuestion} />
   </div></BrowserRouter>
 }
 

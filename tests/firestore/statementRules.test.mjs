@@ -7,6 +7,7 @@ import { initializeFirestore, connectFirestoreEmulator, terminate, collection, c
 import { parsePhonePeCsv, parsePhonePePdfLines } from "../../src/services/phonePeStatementParser.js"
 import { getImportDocumentId, annotateImportDuplicates } from "../../src/services/statementImportModel.js"
 import { loadStatementModule } from "../helpers/statementHarness.mjs"
+import { paytmExcelRows, paytmPdfRows } from "../helpers/paytmFixtures.mjs"
 
 const address = process.env.FIRESTORE_EMULATOR_HOST || ""
 const project = process.env.FINSIGHT_RULES_TEST_PROJECT || ""
@@ -58,6 +59,48 @@ const save = (row) => current.saveImportedTransactionWithId(getImportDocumentId(
 const denied = (error) => error?.code === "permission-denied"
 const assertSeven = (snapshot) => assert.deepEqual(Object.keys(snapshot.data()).sort(), fields)
 const gpay = (row = csvRows[0]) => ({ amount: row.amount, datetime: row.datetime, type: row.type, person: row.person, paymentMethod: "upi", category: "Other", note: "", upiTransactionId: row.utr })
+
+for (const [first, second] of [[paytmPdfRows(), paytmExcelRows()], [paytmExcelRows(), paytmPdfRows()]]) {
+  test(`Paytm ${first[0].source.format} then ${second[0].source.format} saves exactly three seven-field documents under unchanged rules`, async () => {
+    for (const row of first) assert.equal((await save(row)).created, true)
+    for (const row of second) assert.equal((await save(row)).created, false)
+    const stored = await getDocs(ownerCollection())
+    assert.equal(stored.size, 3)
+    assert.equal(stored.docs.reduce((sum, snapshot) => sum + Math.round(snapshot.data().amount * 100), 0), 293000)
+    stored.docs.forEach(assertSeven)
+    assert.deepEqual(stored.docs.map((snapshot) => snapshot.data().datetime).sort(), first.map((row) => row.datetime).sort())
+  })
+}
+test("Paytm guest merge and reimport use the canonical seven-field account collection", async () => {
+  context.user = null
+  for (const row of paytmPdfRows()) await current.saveImportedTransactionWithId(getImportDocumentId(row), row, { expectedUid: null })
+  context.user = { uid: context.uid }
+  assert.equal((await current.mergeGuestTransactionsIntoAccount()).merged, 3)
+  for (const row of paytmExcelRows()) assert.equal((await save(row)).created, false)
+  assert.equal(current.getGuestTransactions().length, 0)
+  const stored = await getDocs(ownerCollection()); assert.equal(stored.size, 3); stored.docs.forEach(assertSeven)
+})
+test("Paytm offline queue synchronizes once without changing timestamps on duplicates", async () => {
+  context.online = false
+  const pdf = paytmPdfRows()[0], id = getImportDocumentId(pdf)
+  for (const row of paytmPdfRows()) assert.equal((await save(row)).pending, true)
+  for (const row of paytmExcelRows()) assert.equal((await save(row)).created, false)
+  assert.equal(context.pending.size, 3)
+  context.online = true
+  assert.deepEqual(await current.syncPendingTransactions(), { synced: 3, duplicates: 0, failed: 0 })
+  assert.deepEqual(await current.syncPendingTransactions(), { synced: 0, duplicates: 0, failed: 0 })
+  const stored = await getDocs(ownerCollection()); assert.equal(stored.size, 3); stored.docs.forEach(assertSeven)
+  assert.equal((await getDoc(ownerDoc(id))).data().datetime, pdf.datetime)
+})
+test("Paytm cross-provider legacy UPI IDs match while significant same-reference conflicts are refused", async () => {
+  const row = paytmExcelRows()[0], oldId = `gpay_${row.utr}`
+  await setDoc(ownerDoc(oldId), current.normalizeTransaction(row))
+  assert.equal((await save(row)).created, false)
+  for (const updates of [{ amount: 61 }, { type: "expense" }, { person: "Different Person" }, { datetime: "2024-08-09T14:39:52.000Z" }]) await assert.rejects(() => save({ ...row, ...updates }), (error) => error.code === "reference-conflict")
+  const distinct = { ...row, utr: "000000009999", upiTransactionId: "000000009999" }
+  assert.equal((await save(distinct)).created, true)
+  const stored = await getDocs(ownerCollection()); assert.equal(stored.size, 2); stored.docs.forEach(assertSeven)
+})
 
 test("v3.2.0 GPay saves with its original document read and seven-field payload under unchanged rules", async () => {
   const baseline = await loadStatementModule("src/services/transactionService.js", seams(true))

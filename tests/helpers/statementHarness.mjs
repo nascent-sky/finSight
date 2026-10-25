@@ -33,7 +33,7 @@ export const textPdf = (pages) => {
     kids.push(`${pageId} 0 R`)
     objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 800 1000] /Resources << /Font << /F1 3 0 R >> >> /Contents ${streamId} 0 R >>`)
     const escape = (line) => line.replaceAll("₹", "$").replaceAll("\\", "\\\\").replaceAll("(", "\\(").replaceAll(")", "\\)")
-    const stream = `BT /F1 10 Tf 14 TL 40 950 Td\n${lines.map((line, i) => `${i ? "T* " : ""}(${escape(line)}) Tj`).join("\n")}\nET`
+    const stream = lines.map((line, index) => (Array.isArray(line) ? line : [{ x: 40, text: line }]).map(({ x, text }) => `BT /F1 10 Tf 1 0 0 1 ${x} ${950 - index * 14} Tm (${escape(text)}) Tj ET`).join("\n")).join("\n")
     objects.push(`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`)
   }
   objects[1] = `<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${pages.length} >>`

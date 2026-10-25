@@ -2,7 +2,7 @@ import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import { STATEMENT_LIMITS } from "./statementImportModel.js"
 
 // Keep the working GPay positioning rules for all text-based statement adapters.
-export const extractPageLines = async (page) => {
+export const extractPageLines = async (page, { positioned = false } = {}) => {
   const textContent = await page.getTextContent()
   if (textContent.items.length > STATEMENT_LIMITS.lines) throw new Error("PDF page exceeds the text safety limit.")
   const positionedItems = textContent.items
@@ -18,10 +18,14 @@ export const extractPageLines = async (page) => {
     }
     currentLine.items.push(item)
   })
-  return lines.map((line) => line.items.sort((first, second) => first.x - second.x).map((item) => item.text).join(" ").replace(/\s+/g, " ").trim())
+  const ordered = lines.map((line) => {
+    const items = line.items.sort((first, second) => first.x - second.x)
+    return { y: line.y, items, text: items.map((item) => item.text).join(" ").replace(/\s+/g, " ").trim() }
+  })
+  return positioned ? ordered : ordered.map((line) => line.text)
 }
 
-export const readPdfStatementPages = async (file) => {
+export const readPdfStatementPages = async (file, { includeLayout = false } = {}) => {
   if (!file.size || file.size > STATEMENT_LIMITS.bytes) throw new Error("Select a non-empty statement up to 10 MB.")
   let loadingTask
   try {
@@ -30,18 +34,20 @@ export const readPdfStatementPages = async (file) => {
     loadingTask = getDocument({ data: await file.arrayBuffer(), isEvalSupported: false, stopAtErrors: true, verbosity: 0 })
     const pdf = await loadingTask.promise
     if (pdf.numPages > STATEMENT_LIMITS.pages) throw new Error("PDF exceeds the 200 page safety limit.")
-    const pages = []
+    const pages = [], layout = []
     let lineCount = 0
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
       const page = await pdf.getPage(pageNumber)
-      const lines = await extractPageLines(page)
+      const positioned = await extractPageLines(page, { positioned: true })
+      const lines = positioned.map((line) => line.text)
       lineCount += lines.length
       if (lineCount > STATEMENT_LIMITS.lines || lines.some((line) => line.length > STATEMENT_LIMITS.field)) throw new Error("PDF exceeds the text safety limit.")
       pages.push(lines)
+      if (includeLayout) layout.push({ lines: positioned })
       page.cleanup()
     }
     if (!pages.flat().length) throw new Error("This PDF has no readable text. Scanned/image statements are not supported.")
-    return pages
+    return includeLayout ? { pages, layout } : pages
   } catch (error) {
     const name = String(error?.name || ""), message = String(error?.message || "")
     if (name === "PasswordException" || /password/i.test(message)) throw new Error("This PDF is password-protected and cannot be imported.")

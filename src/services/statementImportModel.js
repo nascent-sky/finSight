@@ -1,6 +1,6 @@
 // Shared by provider adapters, preview and persistence. No document contents are stored.
 export const STATEMENT_LIMITS = Object.freeze({ bytes: 10 * 1024 * 1024, rows: 10000, csvRows: 12000, pages: 200, lines: 100000, field: 10000 })
-export const STATEMENT_ACCEPT = "application/pdf,text/csv,application/csv,.pdf,.csv"
+export const STATEMENT_ACCEPT = "application/pdf,text/csv,application/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.csv,.xlsx"
 
 export const parseAmountPaise = (value) => {
   const text = String(value ?? "").trim().replace(/^(?:₹|INR\s*|Rs\.?\s*)/i, "").trim()
@@ -104,7 +104,14 @@ const localDay = (datetime) => {
 }
 const financialSignature = (transaction) => `${Number(transaction.amount)}:${transaction.type}:${localDay(transaction.datetime)}`
 const bankReference = (transaction) => normalizeReference(transaction.utr || transaction.upiTransactionId || String(transaction.id || "").match(/^(?:gpay|upi)_(.+)$/)?.[1])
-const hasConflict = (left, right) => financialSignature(left) !== financialSignature(right) || Boolean(bankReference(left) && bankReference(right) && bankReference(left) !== bankReference(right))
+const minute = (transaction) => Math.floor(Date.parse(transaction.datetime) / 60000)
+const party = (transaction) => String(transaction.person || "").trim().replace(/\s+/g, " ").toLowerCase()
+const isPaytm = (transaction) => transaction.source?.provider === "paytm"
+const preciseTime = (transaction) => Date.parse(transaction.datetime) % 60000 ? Date.parse(transaction.datetime) : null
+const hasConflict = (left, right) => financialSignature(left) !== financialSignature(right)
+  || Boolean(bankReference(left) && bankReference(right) && bankReference(left) !== bankReference(right))
+  || ((isPaytm(left) || isPaytm(right)) && (minute(left) !== minute(right) || party(left) !== party(right)
+    || (preciseTime(left) !== null && preciseTime(right) !== null && preciseTime(left) !== preciseTime(right))))
 
 export const findImportMatch = (transaction, existing) => {
   const keys = new Set(getImportIdentityKeys(transaction))
@@ -116,9 +123,11 @@ export const findImportMatch = (transaction, existing) => {
 export const annotateImportDuplicates = (transactions, existing = []) => {
   const groups = new Map()
   const add = (record, index) => getImportIdentityKeys(record).forEach((key) => {
-    if (!groups.has(key)) groups.set(key, { first: index, signatures: new Set(), references: new Set() })
+    if (!groups.has(key)) groups.set(key, { first: index, signatures: new Set(), references: new Set(), minutes: new Set(), preciseTimes: new Set(), parties: new Set(), paytm: false })
     const group = groups.get(key)
     group.signatures.add(financialSignature(record))
+    group.minutes.add(minute(record)); group.parties.add(party(record)); group.paytm ||= isPaytm(record)
+    if (preciseTime(record) !== null) group.preciseTimes.add(preciseTime(record))
     const ref = bankReference(record)
     if (ref) group.references.add(ref)
   })
@@ -126,7 +135,7 @@ export const annotateImportDuplicates = (transactions, existing = []) => {
   transactions.forEach(add)
   return transactions.map((transaction, index) => {
     const matches = getImportIdentityKeys(transaction).map((key) => groups.get(key))
-    const conflict = matches.some((group) => group.signatures.size > 1 || group.references.size > 1)
+    const conflict = matches.some((group) => group.signatures.size > 1 || group.references.size > 1 || (group.paytm && (group.minutes.size > 1 || group.parties.size > 1 || group.preciseTimes.size > 1)))
     return { duplicate: !conflict && matches.some((group) => group.first < index), conflict }
   })
 }

@@ -43,7 +43,7 @@ export default defineConfig({
             files: [
               {
                 name: "statement",
-                accept: ["application/pdf", "text/csv", "application/csv", ".pdf", ".csv"],
+                accept: ["application/pdf", "text/csv", "application/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".pdf", ".csv", ".xlsx"],
               },
             ],
           },

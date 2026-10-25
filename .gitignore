@@ -28,6 +28,7 @@ node_modules/
 dist/
 .env
 /tmp/emulators/
+/tmp/phase22-3-*
 
 # =========================================================
 # Android / Android Studio

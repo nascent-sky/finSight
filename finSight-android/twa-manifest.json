@@ -19,8 +19,8 @@
     "path": "C:\\Users\\Niicheon\\Project\\FinSight\\finSight-android\\android.keystore",
     "alias": "android"
   },
-  "appVersionName": "4",
-  "appVersionCode": 4,
+  "appVersionName": "6",
+  "appVersionCode": 6,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://finsight-pwa.netlify.app/manifest.json",
@@ -46,8 +46,7 @@
             "application/pdf",
             "text/csv",
             "application/csv",
-            ".pdf",
-            ".csv"
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           ]
         }
       ]
@@ -61,5 +60,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "4"
+  "appVersion": "6"
 }

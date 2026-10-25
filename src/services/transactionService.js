@@ -156,6 +156,10 @@ const normalizeLocalTransaction = (transaction = {}) => {
     }
   }
   if (transaction.paymentInstrument) metadata.paymentInstrument = String(transaction.paymentInstrument).slice(0, 1000)
+  if (["minute", "second"].includes(transaction.timestampPrecision)) metadata.timestampPrecision = transaction.timestampPrecision
+  if (transaction.sourceDetails) {
+    metadata.sourceDetails = Object.fromEntries(["description", "otherAccount", "orderId", "remarks", "tags", "comment"].filter((key) => typeof transaction.sourceDetails[key] === "string").map((key) => [key, transaction.sourceDetails[key].slice(0, 10000)]))
+  }
   if (transaction.amountPaise != null || metadata.source) metadata.amountPaise = parseAmountPaise(String(normalized.amount))
   const identityKeys = getImportIdentityKeys(metadata)
   if (identityKeys.length) metadata.importIdentityKeys = identityKeys
@@ -238,9 +242,10 @@ const createTransactionIfMissing = async (uid, id, normalized) => {
   // transaction that creates the record. No metadata or collection-group query.
   return importSaveOperation("firestore-write", () => runTransaction(db, async (firestoreTransaction) => {
     const snapshots = await importSaveOperation("firestore-read", () => Promise.all(aliases.map((alias) => firestoreTransaction.get(doc(db, "users", uid, "transactions", alias)))))
+    const records = snapshots.filter((snapshot) => snapshot.exists()).map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }))
     const existing = snapshots.find((snapshot) => snapshot.exists())
     if (existing) {
-      const match = findImportMatch(identityRecord, [{ id: existing.id, ...existing.data() }])
+      const match = findImportMatch(identityRecord, records)
       if (match?.conflict) throw importSaveError("reference-conflict", "duplicate-check")
       return false
     }
@@ -345,6 +350,9 @@ export const syncPendingTransactions = async (user = auth.currentUser) => {
       try {
         let transactionId, normalized
         try {
+          // Retain unsupported old queue commands for review; never reinterpret
+          // an obsolete update command as a new financial transaction.
+          if (record.transaction.importAction) throw importSaveError("invalid-payload", "validation")
           transactionId = validateTransactionId(record.id)
           normalized = normalizeLocalTransaction(record.transaction)
         } catch (error) { throw importSaveError(error, "validation") }

@@ -5,16 +5,13 @@ import CategorySelect from "../components/transactions/CategorySelect"
 import { useTheme } from "../context/ThemeContext"
 import { parseStatementFile } from "../services/statementImportService"
 import { annotateImportDuplicates, getImportDocumentId, getImportIdentityKeys, parseStatementDatetime, STATEMENT_ACCEPT, toImportPayload } from "../services/statementImportModel"
+import { receiveSharedStatement } from "../services/statementShareService"
 import { saveImportedTransactionWithId, subscribeToTransactions, syncPendingTransactions } from "../services/transactionService"
 import { diagnoseImportError, groupImportFailures, IMPORT_SAVE_STAGES, importResultTitle, importSaveError } from "../services/transactionImportErrors"
 
 const money = (paise) => `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const localDatetime = (iso) => new Date(Date.parse(iso) + 330 * 60000).toISOString().slice(0, 19)
 const fieldClass = "theme-input w-full min-w-0 rounded-lg border px-3 py-2 text-sm"
-// Reuse the existing GPay transfer cache for the shared local handoff.
-const SHARED_CACHE = "finsight-shared-pdf-v1"
-const SHARED_PATH = "/__finsight_shared_pdf__"
-
 const ImportFailures = ({ failures }) => <ul className="mt-3 space-y-2 text-sm text-red-700 dark:text-red-300" aria-label="Import failure diagnostics">
   {groupImportFailures(failures).map((failure) => <li key={`${failure.code}:${failure.stage}`}>
     <p>{failure.rows.length ? `Transaction${failure.rows.length === 1 ? "" : "s"} ${failure.rows.slice(0, 10).join(", ")}${failure.rows.length > 10 ? ` and ${failure.rows.length - 10} more` : ""}: ` : "Queued transactions: "}{failure.message}</p>
@@ -22,7 +19,7 @@ const ImportFailures = ({ failures }) => <ul className="mt-3 space-y-2 text-sm t
   </li>)}
 </ul>
 
-const ImportSession = ({ user }) => {
+const ImportSession = ({ user, sharedFile, sharedError }) => {
   const inputRef = useRef(null), sharedLoaded = useRef(false), active = useRef(true)
   const [fileName, setFileName] = useState("")
   const [result, setResult] = useState(null)
@@ -64,25 +61,10 @@ const ImportSession = ({ user }) => {
   }, [])
 
   useEffect(() => {
-    const shared = new URLSearchParams(window.location.search).get("shared")
-    if (!shared || sharedLoaded.current) return
-    sharedLoaded.current = true
-    window.history.replaceState({}, document.title, window.location.pathname)
-    void (async () => {
-      if (shared !== "1") throw new Error("Share one non-empty PDF or CSV statement up to 10 MB.")
-      const cache = await caches.open(SHARED_CACHE)
-      const response = await cache.match(SHARED_PATH)
-      // Delete the original even if decoding or parsing fails.
-      await cache.delete(SHARED_PATH)
-      if (!response) throw new Error("The shared statement is no longer available. Please share it again.")
-      const storedAt = Number(response.headers.get("X-FinSight-Shared-At"))
-      if (storedAt && Date.now() - storedAt > 5 * 60 * 1000) throw new Error("The shared statement has expired. Please share it again.")
-      const blob = await response.blob()
-      const name = response.headers.get("X-FinSight-Filename")
-      const file = new File([blob], name ? decodeURIComponent(name) : "shared-statement.pdf", { type: blob.type })
-      if (active.current) await parseFile(file)
-    })().catch((sharedError) => { if (active.current) setError(sharedError?.message || "The shared statement could not be loaded.") })
-  }, [parseFile])
+    if (!sharedFile || sharedLoaded.current === sharedFile) return
+    sharedLoaded.current = sharedFile
+    void parseFile(sharedFile)
+  }, [sharedFile, parseFile])
 
   const rows = useMemo(() => {
     const transactions = result?.transactions || []
@@ -151,7 +133,7 @@ const ImportSession = ({ user }) => {
   return <div className="mx-auto max-w-5xl space-y-5">
     <div className="theme-hero rounded-2xl p-6 shadow-lg">
       <h1 className="text-3xl font-bold">Import UPI Statement</h1>
-      <p className="mt-2 opacity-90">Google Pay PDF · PhonePe PDF or CSV</p>
+      <p className="mt-2 opacity-90">Google Pay PDF · PhonePe PDF or CSV · Paytm PDF or Excel (XLSX)</p>
     </div>
     <Card padding="lg">
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -159,11 +141,12 @@ const ImportSession = ({ user }) => {
           <p className="theme-muted-text mt-1 text-sm">Processed locally on this device. Up to 10 MB and 10,000 transactions.</p>
           {fileName && <p className="theme-muted-text mt-2 flex items-center gap-2 break-all text-xs"><FileText size={14} />{fileName}</p>}
         </div>
-        <input ref={inputRef} type="file" aria-label="Statement PDF or CSV" accept={STATEMENT_ACCEPT} disabled={busy} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void parseFile(file) }} />
-        <button type="button" disabled={busy} onClick={() => inputRef.current?.click()} className="theme-button-primary flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-60"><Upload size={17} />{isParsing ? "Parsing…" : "Select PDF or CSV"}</button>
+        <input ref={inputRef} type="file" aria-label="Statement PDF, CSV or XLSX" accept={STATEMENT_ACCEPT} disabled={busy} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void parseFile(file) }} />
+        <button type="button" disabled={busy} onClick={() => inputRef.current?.click()} className="theme-button-primary flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-60"><Upload size={17} />{isParsing ? "Parsing…" : "Select PDF, CSV or XLSX"}</button>
       </div>
     </Card>
     {error && <Card><p role="alert" className="text-sm text-red-700 dark:text-red-300">{error}</p></Card>}
+    {sharedError && <Card><p role="alert" className="text-sm text-red-700 dark:text-red-300">{sharedError}</p></Card>}
     {isParsing && <Card><p role="status" className="theme-muted-text">Reading the statement locally…</p></Card>}
     {history.error && <Card><p role="alert">{history.error}</p><button type="button" className="theme-accent-text mt-2" onClick={() => setLookupAttempt((value) => value + 1)}>Retry duplicate check</button></Card>}
     {user?.uid && pendingCount > 0 && <Card>
@@ -176,7 +159,7 @@ const ImportSession = ({ user }) => {
       {syncResult.failures?.length > 0 && <><p className="theme-muted-text mt-2 text-sm">Unsent records remain in the offline queue for retry.</p><ImportFailures failures={syncResult.failures} /></>}
     </Card>}
     {result && <>
-      <p className="theme-muted-text text-sm">Detected {result.provider === "phonepe" ? "PhonePe" : "Google Pay"} · {result.format.toUpperCase()} · {rows.length} transactions</p>
+      <p className="theme-muted-text text-sm">Detected {{ phonepe: "PhonePe", paytm: "Paytm", gpay: "Google Pay" }[result.provider]} · {result.format.toUpperCase()} · {rows.length} transactions</p>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {[
           ["Debits", `${rows.filter(({ transaction }) => transaction.type === "expense").length} · ${money(summary.expense)}`],
@@ -210,6 +193,7 @@ const ImportSession = ({ user }) => {
               <label className="theme-muted-text space-y-1 text-sm">Note<input aria-label={`Note ${index + 1}`} value={transaction.note} className={fieldClass} onChange={(event) => updateRow(index, { note: event.target.value })} /></label>
             </fieldset>
             <p className="theme-muted-text mt-3 break-all text-xs">{transaction.transactionId && `Transaction ID: ${transaction.transactionId} · `}UPI / UTR: {transaction.utr || transaction.upiTransactionId || "Unavailable"}{transaction.paymentInstrument && ` · ${transaction.paymentInstrument}`}</p>
+            {transaction.sourceDetails && <details className="theme-muted-text mt-2 break-words text-xs"><summary>Source details</summary>{Object.entries(transaction.sourceDetails).map(([key, value]) => <p key={key}>{key}: {value}</p>)}</details>}
             {validation && <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{validation}</p>}
           </Card>)}
         </section>
@@ -227,6 +211,27 @@ const ImportSession = ({ user }) => {
 
 const TransactionImport = () => {
   const { user } = useTheme()
-  return <ImportSession key={user?.uid || "guest"} user={user} />
+  // Keep the actual File above the account-keyed preview. Resolving Firebase
+  // sign-in must not consume a handoff in a guest session that then unmounts.
+  const request = useRef(null)
+  const [shared, setShared] = useState({ file: null, error: "" })
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get("shared")
+    if (!token) return
+    let mounted = true
+    request.current ||= receiveSharedStatement(token)
+    const clearQuery = () => {
+      const url = new URL(window.location.href)
+      url.searchParams.delete("shared")
+      window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`)
+    }
+    request.current.then((file) => {
+      if (mounted) { setShared({ file, error: "" }); clearQuery() }
+    }).catch((problem) => {
+      if (mounted) { setShared({ file: null, error: problem.message }); clearQuery() }
+    })
+    return () => { mounted = false }
+  }, [])
+  return <ImportSession key={user?.uid || "guest"} user={user} sharedFile={shared.file} sharedError={shared.error} />
 }
 export default TransactionImport

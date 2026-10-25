@@ -3,7 +3,10 @@ import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
 import { JSDOM } from "jsdom"
 import React, { act } from "react"
-import { loadStatementModule } from "../../tests/helpers/statementHarness.mjs"
+import { loadStatementModule, textPdf } from "../../tests/helpers/statementHarness.mjs"
+import { paytmPdfPages, paytmPdfRows, paytmExcelRows, workbookFile, workbookEntries, paytmSheets } from "../../tests/helpers/paytmFixtures.mjs"
+import { getImportDocumentId } from "./statementImportModel.js"
+import { shareHarness } from "../../tests/helpers/statementShareHarness.mjs"
 
 const dom = new JSDOM("<!doctype html><body></body>", { url: "https://finsight.example/transactions-import" })
 const descriptors = new Map()
@@ -21,10 +24,11 @@ const { default: ImportPage } = await loadStatementModule("src/pages/Transaction
 } }])
 const csv = await readFile(new URL("../../tests/fixtures/phonepe/statement.csv", import.meta.url), "utf8")
 const roots = new Set(), pause = () => new Promise((resolve) => setTimeout(resolve, 0))
-afterEach(async () => { await act(async () => { for (const root of roots) root.unmount() }); roots.clear(); document.body.replaceChildren(); delete globalThis.__importUi })
+const oldCaches = Object.getOwnPropertyDescriptor(globalThis, "caches")
+afterEach(async () => { await act(async () => { for (const root of roots) root.unmount() }); roots.clear(); document.body.replaceChildren(); window.history.replaceState({}, "", "/transactions-import"); if (oldCaches) Object.defineProperty(globalThis, "caches", oldCaches); else delete globalThis.caches; delete globalThis.__importUi })
 after(() => { dom.window.close(); for (const [key, descriptor] of descriptors) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key] } })
 
-async function mount(overrides = {}) {
+async function mount(overrides = {}, strict = false) {
   let listener
   const saves = [], history = []
   const state = { user: null, sync: async () => ({ synced: 0, duplicates: 0, failed: 0 }), subscribe: (callback) => { listener = callback; callback(history); return () => {} }, save: async (id, transaction) => { saves.push({ id, transaction }); history.push({ id, ...transaction }); listener(history.slice()); return { created: true, pending: false } }, ...overrides }
@@ -33,14 +37,15 @@ async function mount(overrides = {}) {
   document.body.append(container)
   const root = createRoot(container)
   roots.add(root)
-  const render = async () => { await act(async () => { root.render(React.createElement(ImportPage)); await pause() }) }
+  const render = async () => { await act(async () => { const page = React.createElement(ImportPage); root.render(strict ? React.createElement(React.StrictMode, null, page) : page); await pause() }) }
   await render()
   const button = (prefix) => [...container.querySelectorAll("button")].find((el) => el.textContent.startsWith(prefix))
   const click = async (prefix) => { const el = button(prefix); assert.ok(el); assert.equal(el.disabled, false); await act(async () => { el.click(); await pause() }) }
   const load = async (text = csv) => {
     const input = container.querySelector('input[type="file"]')
-    Object.defineProperty(input, "files", { configurable: true, value: [new File([text], "synthetic.csv", { type: "text/csv" })] })
+    Object.defineProperty(input, "files", { configurable: true, value: [text instanceof File ? text : new File([text], "synthetic.csv", { type: "text/csv" })] })
     await act(async () => { input.dispatchEvent(new dom.window.Event("change", { bubbles: true })); await pause() })
+    for (let attempt = 0; attempt < 100 && container.textContent.includes("Reading the statement locally"); attempt++) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)) })
   }
   const edit = async (label, value) => {
     const el = container.querySelector(`[aria-label="${label}"]`)
@@ -51,6 +56,82 @@ async function mount(overrides = {}) {
   return { container, saves, load, edit, click, button, render, state }
 }
 
+const waitFor = async (condition) => {
+  for (let attempt = 0; attempt < 300 && !condition(); attempt++) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)) })
+  assert.ok(condition(), "Expected the received file to produce a preview automatically")
+}
+const stage = async (file) => {
+  const h = shareHarness(), response = await h.share([file])
+  Object.defineProperty(globalThis, "caches", { configurable: true, value: h.caches })
+  const url = new URL(response.headers.get("Location"))
+  window.history.replaceState({}, "", `${url.pathname}${url.search}`)
+  return h
+}
+const phonePePages = JSON.parse(await readFile(new URL("../../tests/fixtures/phonepe/statement.pdf-lines.json", import.meta.url), "utf8"))
+const gpayLines = ["Google Pay transaction statement", "12 Oct, 2026", "3:37 pm", "Paid to Sample Merchant ₹1", "UPI Transaction ID: 900000001001"]
+for (const [label, file, expected, count] of [
+  ["GPay PDF", textPdf([gpayLines]), "Google Pay · PDF", 1],
+  ["PhonePe PDF", textPdf(phonePePages), "PhonePe · PDF", 3],
+  ["PhonePe CSV", new File([csv], "fictional.csv", { type: "text/csv" }), "PhonePe · CSV", 3],
+  ["Paytm PDF", textPdf(paytmPdfPages), "Paytm · PDF", 3],
+  ["Paytm XLSX", workbookFile(), "Paytm · XLSX", 3],
+]) test(`${label} multipart Android handoff automatically displays the real parser preview without file selection`, async () => {
+  const h = await stage(file), ui = await mount({}, true)
+  await waitFor(() => ui.container.textContent.includes(`Detected ${expected} · ${count} transactions`))
+  assert.equal(ui.saves.length, 0)
+  assert.equal(ui.button(`Import ${count} Transactions`).disabled, false)
+  assert.equal(h.stored.size, 0)
+  assert.equal(new URLSearchParams(window.location.search).has("shared"), false)
+})
+test("a received file survives authentication resolving before cache delivery and after preview creation", async () => {
+  const h = await stage(new File([csv], "fictional.csv", { type: "text/csv" }))
+  let release, opens = 0
+  Object.defineProperty(globalThis, "caches", { configurable: true, value: { open: () => { opens++; return new Promise((resolve) => { release = () => resolve(h.cache) }) } } })
+  const ui = await mount({}, true)
+  ui.state.user = { uid: "signed-in-fixture" }
+  await ui.render()
+  await act(async () => { release(); await pause() })
+  await waitFor(() => ui.container.textContent.includes("PhonePe · CSV · 3 transactions"))
+  assert.equal(opens, 1); assert.equal(ui.saves.length, 0)
+  ui.state.user = { uid: "different-fixture" }; await ui.render()
+  await waitFor(() => ui.container.textContent.includes("PhonePe · CSV · 3 transactions"))
+  assert.equal(opens, 1); assert.equal(h.stored.size, 0)
+})
+test("missing browser delivery is reported without pretending that a file was received", async () => {
+  window.history.replaceState({}, "", "/transactions-import?shared=missing")
+  const ui = await mount()
+  await waitFor(() => ui.container.textContent.includes("browser did not deliver"))
+  assert.equal(ui.container.querySelector('[aria-label="Parsed transaction preview"]'), null)
+})
+test("Excel reimport keeps the saved PDF timestamp and offers no timestamp update action", async () => {
+  const history = paytmPdfRows().map((row) => ({ id: getImportDocumentId(row), ...row })), calls = []
+  const original = structuredClone(history)
+  const ui = await mount({ subscribe: (callback) => { callback(history); return () => {} }, save: async (...args) => { calls.push(args); return { created: false } } })
+  await ui.load(workbookFile())
+  assert.equal(ui.button("Import 0 Transactions").disabled, true)
+  assert.equal([...ui.container.querySelectorAll("button")].filter((button) => /Excel time|saved time/i.test(button.textContent)).length, 0)
+  assert.deepEqual(history, original); assert.equal(calls.length, 0)
+})
+
+test("Paytm workbook preview shows totals, editable fields and source metadata using the shared save flow", async () => {
+  const sheets = structuredClone(paytmSheets); sheets[1].data[1][8] = "Review this source remark"
+  const ui = await mount()
+  await ui.load(workbookFile(workbookEntries(sheets)))
+  assert.match(ui.container.textContent, /Detected Paytm · XLSX · 3 transactions/)
+  assert.match(ui.container.textContent, /₹2,930.00/)
+  assert.match(ui.container.textContent, /Review this source remark/)
+  assert.ok(ui.container.querySelector('input[type="file"]').accept.includes(".xlsx"))
+  await ui.edit("Note 1", "Reviewed note")
+  await ui.click("Import 3 Transactions")
+  assert.equal(ui.saves.length, 3)
+  assert.equal(ui.saves[0].transaction.note, "Reviewed note")
+  assert.equal(ui.saves[0].transaction.type, "income")
+  assert.equal(ui.saves[0].transaction.datetime, paytmExcelRows()[0].datetime)
+  assert.match(ui.container.textContent, /3 imported/)
+  await ui.load(workbookFile())
+  assert.equal(ui.button("Import 0 Transactions").disabled, true)
+  assert.match(ui.container.textContent, /3 already imported/)
+})
 test("preview shows count/totals, accepts corrections and saves only approved canonical transactions", async () => {
   const ui = await mount()
   await ui.load()

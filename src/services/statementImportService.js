@@ -1,13 +1,20 @@
 import { isPhonePePdf, parsePhonePeCsv, parsePhonePePdfLines } from "./phonePeStatementParser.js"
+import { isPaytmPdf, parsePaytmPdfLines } from "./paytmStatementParser.js"
 import { STATEMENT_LIMITS } from "./statementImportModel.js"
 
-// Add future Paytm adapters here; all adapters return the same preview contract.
+// Provider adapters return the same preview contract and share one save service.
 export const parseStatementFile = async (file) => {
-  if (!file || typeof file.arrayBuffer !== "function" || !file.size || file.size > STATEMENT_LIMITS.bytes) throw new Error("Select a non-empty PDF or CSV statement up to 10 MB.")
+  if (!file || typeof file.arrayBuffer !== "function" || !file.size || file.size > STATEMENT_LIMITS.bytes) throw new Error("Select a non-empty PDF, CSV or XLSX statement up to 10 MB.")
   const signature = new TextDecoder().decode(await file.slice(0, 5).arrayBuffer())
+  if (/\.xlsx$/i.test(file.name) || file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" || signature.startsWith("PK")) {
+    let workbook
+    try { workbook = await import("./xlsxStatementReader.js") }
+    catch { throw new Error("The local Excel parser is unavailable. Reopen FinSight while online once, then try again.") }
+    return workbook.readPaytmWorkbook(file)
+  }
   if (signature !== "%PDF-") {
     if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) throw new Error("The selected file does not contain a valid PDF.")
-    if (!/\.csv$/i.test(file.name) && !["text/csv", "application/csv"].includes(file.type)) throw new Error("Supported statements: Google Pay PDF and PhonePe PDF or CSV.")
+    if (!/\.csv$/i.test(file.name) && !["text/csv", "application/csv"].includes(file.type)) throw new Error("Supported statements: Google Pay PDF, PhonePe PDF/CSV and Paytm PDF/XLSX.")
     let text
     try { text = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer()) }
     catch { throw new Error("CSV must be a readable UTF-8 text file.") }
@@ -17,10 +24,11 @@ export const parseStatementFile = async (file) => {
   try { reader = await import("./pdfStatementReader.js") }
   catch { throw new Error("The local PDF parser is unavailable. Reopen FinSight while online once, then try again.") }
   const { readPdfStatementPages } = reader
-  const pages = await readPdfStatementPages(file)
+  const { pages, layout } = await readPdfStatementPages(file, { includeLayout: true })
+  if (isPaytmPdf(pages)) return parsePaytmPdfLines(pages, layout)
   if (isPhonePePdf(pages)) return parsePhonePePdfLines(pages)
   const lines = pages.flat()
-  if (!lines.some((line) => /Google Pay/i.test(line)) && !lines.some((line) => /UPI Transaction ID/i.test(line))) throw new Error("This PDF is not a supported Google Pay or PhonePe statement.")
+  if (!lines.some((line) => /Google Pay/i.test(line)) && !lines.some((line) => /UPI Transaction ID/i.test(line))) throw new Error("This PDF is not a supported Google Pay, PhonePe or Paytm statement.")
   let gpay
   try { gpay = await import("./gpayStatementParser.js") }
   catch { throw new Error("The local Google Pay parser is unavailable. Reopen FinSight while online once, then try again.") }

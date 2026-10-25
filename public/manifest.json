@@ -20,7 +20,9 @@
             "text/csv",
             "application/csv",
             ".pdf",
-            ".csv"
+            ".csv",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".xlsx"
           ]
         }
       ]

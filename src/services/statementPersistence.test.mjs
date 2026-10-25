@@ -5,6 +5,7 @@ import { loadStatementModule } from "../../tests/helpers/statementHarness.mjs"
 import { parsePhonePeCsv } from "./phonePeStatementParser.js"
 import { parsePhonePePdfLines } from "./phonePeStatementParser.js"
 import { getImportDocumentId } from "./statementImportModel.js"
+import { paytmExcelRows, paytmPdfRows } from "../../tests/helpers/paytmFixtures.mjs"
 
 // Run the actual transaction service with explicit Firestore/queue transport
 // seams. No Firebase connection, application, browser or emulator is started.
@@ -50,6 +51,7 @@ beforeEach(() => {
     getPendingTransactions: async (uid) => [...pending.values()].filter((record) => record.uid === uid),
     addPendingTransaction: async (uid, id, transaction) => { const key = `${uid}:${id}`; const created = !pending.has(key); if (created) pending.set(key, { uid, id, transaction }); return { created } },
     deletePendingTransaction: async (uid, id) => pending.delete(`${uid}:${id}`),
+    updatePendingTransaction: async (uid, id, transaction) => pending.set(`${uid}:${id}`, { uid, id, transaction }),
   }
   globalThis.__statementStore = state
   Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (key) => local.get(key), setItem: (key, value) => local.set(key, value), removeItem: (key) => local.delete(key) } })
@@ -57,6 +59,58 @@ beforeEach(() => {
 })
 after(() => { delete globalThis.__statementStore; for (const [key, value] of descriptors) { if (value) Object.defineProperty(globalThis, key, value); else delete globalThis[key] } })
 const save = (transaction) => service.saveImportedTransactionWithId(getImportDocumentId(transaction), transaction)
+
+test("unsupported queued commands are retained for review and never treated as creates", async () => {
+  state.user = { uid: "synthetic-user" }; state.online = true
+  const row = paytmExcelRows()[0], id = getImportDocumentId(row)
+  state.pending.set(`synthetic-user:${id}`, { uid: "synthetic-user", id, transaction: { ...row, importAction: "unsupported-command" } })
+  const result = await service.syncPendingTransactions()
+  assert.equal(result.failed, 1)
+  assert.equal(result.failures[0].code, "invalid-payload")
+  assert.equal(state.server.size, 0); assert.equal(state.pending.size, 1)
+})
+
+for (const [first, second] of [[paytmPdfRows(), paytmExcelRows()], [paytmExcelRows(), paytmPdfRows()]]) {
+  for (const mode of ["guest", "signed-in", "offline"]) test(`Paytm ${mode}: ${first[0].source.format} then ${second[0].source.format} keeps three records`, async () => {
+    if (mode !== "guest") state.user = { uid: "synthetic-user" }
+    state.online = mode === "signed-in"
+    for (const row of first) assert.equal((await save(row)).created, true)
+    for (const row of second) assert.equal((await save(row)).created, false)
+    if (mode === "guest") {
+      const stored = service.getGuestTransactions()
+      assert.equal(stored.length, 3); assert.equal(stored[0].sourceDetails.description.length > 0, true)
+      state.user = { uid: "synthetic-user" }; state.online = true
+      assert.equal((await service.mergeGuestTransactionsIntoAccount()).merged, 3)
+      assert.equal(service.getGuestTransactions().length, 0)
+    } else if (mode === "offline") {
+      state.online = true
+      assert.deepEqual(await service.syncPendingTransactions(), { synced: 3, duplicates: 0, failed: 0 })
+    }
+    assert.equal(state.server.size, 3)
+    assert.ok([...state.server.values()].every((record) => Object.keys(record).length === 7 && record.type === "income" && record.paymentMethod === "upi"))
+    assert.deepEqual([...state.server.values()].map((record) => record.datetime).sort(), first.map((row) => row.datetime).sort())
+  })
+}
+
+test("Paytm partial permission failure and interrupted create retry without duplicates", async () => {
+  state.user = { uid: "synthetic-user" }; state.online = true
+  const rows = paytmExcelRows()
+  state.commitFailure = (writes) => writes.some(([path]) => path.endsWith(rows[1].utr)) ? { code: "permission-denied" } : null
+  const outcomes = await Promise.allSettled(rows.map(save))
+  assert.equal(outcomes.filter((row) => row.status === "fulfilled").length, 2)
+  assert.equal(outcomes[1].reason.code, "permission-denied")
+  assert.equal(state.pending.size, 0)
+  state.commitFailure = null
+  assert.equal((await save(rows[1])).created, true)
+  for (const row of paytmPdfRows()) assert.equal((await save(row)).created, false)
+  assert.equal(state.server.size, 3)
+  state.afterCommitFailure = { code: "unavailable" }
+  const distinct = { ...rows[0], utr: "000000009999", upiTransactionId: "000000009999" }
+  assert.equal((await save(distinct)).pending, true)
+  state.afterCommitFailure = null
+  assert.deepEqual(await service.syncPendingTransactions(), { synced: 0, duplicates: 1, failed: 0 })
+  assert.equal(state.server.size, 4)
+})
 
 test("guest imports remain local, preserve identity, detect cross-format duplicates and retain distinct UTRs", async () => {
   for (const row of rows) assert.equal((await save(row)).created, true)
